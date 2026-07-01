@@ -1,24 +1,19 @@
 /**
  * PhysicalLabScene — the PHYSICAL laboratory view.
  *
- * Unlike the Bloch sphere (an abstract mathematical space), this scene depicts
- * the real experimental apparatus in 3-D lab space:
+ * Depicts a recognizable magnetic-resonance apparatus in real 3-D space so the
+ * experiment reads without a legend:
  *
- *   • Sample      — the spin/qubit under study            (→ Environment editor)
- *   • Magnet      — static field source, B₀ along +Z      (→ System editor)
- *   • RF source   — drive coil emitting B₁(t)             (→ Fields & Pulses editor)
- *   • Detector    — reads the state during measurement    (→ Measurement editor)
+ *   Magnet poles (±Z)  create B₀ ─────────┐
+ *   RF coil around the sample produces B₁(t)│  clear physical flow, left → right
+ *   Sample (vial) at the center responds ───┤
+ *   Detector (wired to the sample) measures ┘
  *
- * Objects are selectable (click) and hover-labeled — this is how contextual
- * editing is triggered.  Field arrows are context-aware: only the physically
- * active field is prominent (emphasis weights from stageModel), so B₀ and B₁
- * are never shown with equal weight at the same time.
- *
- * All quantities come from backend data:
- *   B₀ direction  — physical-system definition (static +Z)
- *   B₁(t)         — field_trajectory transverse part [Ωx,Ωy] (direction=φ)
- *   mixedness     — 1−|r| from the backend Bloch vector (relaxation cue)
- * No physics is computed here.
+ * Objects are selectable and highlight on hover/selection (never otherwise).
+ * Fields visually originate from their source — B₀ as field lines running pole
+ * to pole through the sample, B₁ as a field emitted by the coil acting on the
+ * sample — and their strength is driven only by backend values (emphasis
+ * weights + field magnitude).  No physics is computed here.
  */
 
 import { useMemo, useRef, useState } from "react";
@@ -28,38 +23,35 @@ import * as THREE from "three";
 import { PHYS, C } from "./theme.js";
 import { drivePhase } from "./stageModel.js";
 
-const INITIAL_CAM = [3.2, 3.2, 2.0];
+const INITIAL_CAM = [2.5, 2.5, 1.7];
 
 // ── Arrow with opacity (so emphasis can truly fade inactive fields) ──────────
-function LabArrow({ origin = [0, 0, 0], direction, length, color, opacity = 1 }) {
+function LabArrow({ origin = [0, 0, 0], direction, length, color, opacity = 1, lineWidth = 4, cone = 0.16 }) {
   const geom = useMemo(() => {
     const [dx, dy, dz] = direction;
     const mag = Math.hypot(dx, dy, dz);
     if (mag < 1e-9 || length < 1e-6) return null;
     const n = [dx / mag, dy / mag, dz / mag];
-    const CONE = 0.22;
-    const [ox, oy, oz] = origin;
-    const shaftEnd = n.map((c, i) => origin[i] + c * (length - CONE));
-    const conePos  = n.map((c, i) => origin[i] + c * (length - CONE / 2));
+    const shaftEnd = n.map((c, i) => origin[i] + c * (length - cone));
+    const conePos  = n.map((c, i) => origin[i] + c * (length - cone / 2));
     const quat = new THREE.Quaternion().setFromUnitVectors(
       new THREE.Vector3(0, 1, 0), new THREE.Vector3(...n));
-    return { shaftEnd, conePos, quat, o: [ox, oy, oz] };
-  }, [origin, direction, length]);
+    return { shaftEnd, conePos, quat, o: [...origin] };
+  }, [origin, direction, length, cone]);
   if (!geom) return null;
   return (
     <>
-      <Line points={[geom.o, geom.shaftEnd]} color={color} lineWidth={4} transparent opacity={opacity} />
+      <Line points={[geom.o, geom.shaftEnd]} color={color} lineWidth={lineWidth} transparent opacity={opacity} />
       <mesh position={geom.conePos} quaternion={geom.quat}>
-        <coneGeometry args={[0.07, 0.22, 18]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.3}
-          transparent opacity={opacity} />
+        <coneGeometry args={[cone * 0.34, cone, 16]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.3} transparent opacity={opacity} />
       </mesh>
     </>
   );
 }
 
-// ── Selectable wrapper ───────────────────────────────────────────────────────
-function Selectable({ id, selected, onSelect, onHover, children }) {
+// ── Selectable wrapper (pointer events only; highlight handled by children) ──
+function Selectable({ id, onSelect, onHover, children }) {
   return (
     <group
       onPointerDown={(e) => { e.stopPropagation(); onSelect?.(id); }}
@@ -67,101 +59,132 @@ function Selectable({ id, selected, onSelect, onHover, children }) {
       onPointerOut={(e)  => { e.stopPropagation(); onHover?.(null); }}
     >
       {children}
-      {selected && (
-        <mesh>
-          <sphereGeometry args={[0.001, 4, 4]} />
-          <meshBasicMaterial visible={false} />
-        </mesh>
-      )}
     </group>
   );
 }
 
-// ── Apparatus pieces ─────────────────────────────────────────────────────────
-function Magnet({ b0Opacity, selected }) {
-  const glow = selected ? 0.5 : 0.15;
-  const poleColor = selected ? "#6ea0ff" : "#3a5896";
+// ── Magnet: two pole pieces around the sample + B₀ field lines through it ─────
+function Magnet({ b0Opacity, highlight }) {
+  const poleColor = highlight ? "#6a90d0" : "#2e456e";
+  const glow = highlight ? 0.35 : 0.05;
+  const zPole = 1.0;
+  // B₀ field lines running pole-to-pole through the sample region.
+  const fieldLines = [[0, 0], [0.24, 0], [-0.24, 0], [0, 0.24], [0, -0.24]];
   return (
     <group>
-      {[1.75, -1.75].map((z) => (
+      {[zPole, -zPole].map((z) => (
         <mesh key={z} position={[0, 0, z]}>
-          <cylinderGeometry args={[0.55, 0.55, 0.32, 32]} />
-          <meshStandardMaterial color={poleColor} metalness={0.6} roughness={0.45}
+          {/* Small, flat pole faces — recognizable but not dominating. */}
+          <cylinderGeometry args={[0.28, 0.32, 0.12, 40]} />
+          <meshStandardMaterial color={poleColor} metalness={0.75} roughness={0.4}
             emissive={PHYS.b0} emissiveIntensity={glow} />
         </mesh>
       ))}
-      {/* B₀ static field arrow along +Z (from sample toward north pole). */}
-      <LabArrow direction={[0, 0, 1]} length={1.45} color={PHYS.b0} opacity={b0Opacity} />
+      {/* Pole labels N/S give the magnet immediate meaning. */}
+      <Text position={[0, 0, zPole + 0.16]} fontSize={0.12} color="#9fb8e6"
+        anchorX="center" anchorY="middle">N</Text>
+      <Text position={[0, 0, -zPole - 0.16]} fontSize={0.12} color="#9fb8e6"
+        anchorX="center" anchorY="middle">S</Text>
+      {fieldLines.map(([x, y], i) => (
+        <Line key={i} points={[[x, y, -zPole + 0.1], [x, y, zPole - 0.1]]}
+          color={PHYS.b0} lineWidth={1} transparent opacity={0.06 + 0.36 * b0Opacity} />
+      ))}
+      {/* Direction indicator through the sample (part of the pole-to-pole field). */}
+      <LabArrow origin={[0, 0, -0.05]} direction={[0, 0, 1]} length={0.62} color={PHYS.b0}
+        opacity={0.12 + 0.6 * b0Opacity} lineWidth={2} cone={0.11} />
     </group>
   );
 }
 
-function Sample({ mixedness, selected }) {
+// ── Sample: a vial with the spin inside; halo grows with coherence loss ──────
+function Sample({ mixedness, highlight }) {
   const shell = Math.max(0.05, Math.min(0.9, mixedness));
   return (
     <group>
-      {/* Coherent core (shrinks as the state loses purity). */}
+      {/* Glass vial (translucent). */}
       <mesh>
-        <sphereGeometry args={[0.16 * (1 - 0.5 * shell), 24, 24]} />
-        <meshStandardMaterial color="#ffe0a0" emissive="#ffb060"
-          emissiveIntensity={selected ? 0.9 : 0.55} />
+        <cylinderGeometry args={[0.15, 0.15, 0.52, 28, 1, false]} />
+        <meshStandardMaterial color="#9fc4ff" transparent opacity={highlight ? 0.28 : 0.16}
+          metalness={0.1} roughness={0.15} depthWrite={false} />
       </mesh>
-      {/* Decoherence halo — grows with 1−|r| (relaxation / dephasing). */}
+      {/* Rounded vial base. */}
+      <mesh position={[0, 0, -0.26]}>
+        <sphereGeometry args={[0.15, 24, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
+        <meshStandardMaterial color="#9fc4ff" transparent opacity={highlight ? 0.28 : 0.16}
+          metalness={0.1} roughness={0.15} depthWrite={false} />
+      </mesh>
+      {/* The spin ensemble (shrinks as purity is lost). */}
       <mesh>
-        <sphereGeometry args={[0.28, 24, 24]} />
-        <meshStandardMaterial color="#ff9060" transparent
-          opacity={0.06 + 0.22 * shell} depthWrite={false} />
+        <sphereGeometry args={[0.11 * (1 - 0.45 * shell), 24, 24]} />
+        <meshStandardMaterial color="#ffe0a0" emissive="#ffb060" emissiveIntensity={highlight ? 0.95 : 0.6} />
       </mesh>
-      {selected && (
+      {/* Decoherence halo — grows with 1−|r|. */}
+      <mesh>
+        <sphereGeometry args={[0.2, 20, 20]} />
+        <meshStandardMaterial color="#ff9060" transparent opacity={0.05 + 0.22 * shell} depthWrite={false} />
+      </mesh>
+      {highlight && (
         <mesh>
-          <sphereGeometry args={[0.33, 24, 24]} />
-          <meshBasicMaterial color="#ffd090" wireframe transparent opacity={0.35} />
+          <sphereGeometry args={[0.24, 20, 20]} />
+          <meshBasicMaterial color="#ffd090" wireframe transparent opacity={0.3} />
         </mesh>
       )}
     </group>
   );
 }
 
-function RFSource({ b1Opacity, phase, selected }) {
-  const pos = [2.1, 0, 0];
+// ── RF coil wrapped around the sample; emits B₁ along its axis into the sample ─
+function RFCoil({ b1Opacity, phase, highlight }) {
   const active = b1Opacity > 0.4;
-  const coilColor = selected ? "#7fe0f0" : active ? PHYS.b1 : "#2b6472";
-  const dir = [Math.cos(phase), Math.sin(phase), 0];
+  const coilColor = highlight ? "#8fe6f4" : active ? PHYS.b1 : "#2f6b78";
+  const glow = active ? 0.6 : highlight ? 0.4 : 0.08;
+  const loops = [-0.34, -0.17, 0, 0.17, 0.34]; // solenoid turns along the coil axis
+  // The whole coil (and thus its field) is oriented along the drive direction φ.
   return (
-    <group>
-      {/* Drive coil (axis pointing at the sample). */}
-      <mesh position={pos} rotation={[0, Math.PI / 2, 0]}>
-        <torusGeometry args={[0.28, 0.06, 16, 32]} />
-        <meshStandardMaterial color={coilColor} metalness={0.5} roughness={0.4}
-          emissive={PHYS.b1} emissiveIntensity={active ? 0.6 : selected ? 0.4 : 0.08} />
-      </mesh>
-      {/* Stand */}
-      <Line points={[[2.1, 0, -1.9], pos]} color="#25405f" lineWidth={2} />
-      {/* Beam from coil to sample — brightens while driving. */}
-      <Line points={[pos, [0, 0, 0]]} color={PHYS.b1} lineWidth={1.5}
-        transparent opacity={0.08 + 0.5 * b1Opacity} dashed dashScale={3} />
-      {/* B₁(t) drive arrow at the sample, along the pulse phase direction. */}
-      <LabArrow direction={dir} length={0.95} color={PHYS.b1} opacity={b1Opacity} />
+    <group rotation={[0, 0, phase]}>
+      {loops.map((x) => (
+        <mesh key={x} position={[x, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+          <torusGeometry args={[0.3, 0.028, 12, 28]} />
+          <meshStandardMaterial color={coilColor} metalness={0.55} roughness={0.35}
+            emissive={PHYS.b1} emissiveIntensity={glow} />
+        </mesh>
+      ))}
+      {/* Lead wires so the coil reads as a driven component. */}
+      <Line points={[[-0.34, 0, 0.3], [-0.62, 0, 0.62]]} color="#2f6b78" lineWidth={2} />
+      <Line points={[[0.34, 0, 0.3], [0.62, 0, 0.62]]} color="#2f6b78" lineWidth={2} />
+      {/* B₁(t) emitted by the coil, acting locally along the coil axis through the sample. */}
+      <LabArrow origin={[-0.12, 0, 0]} direction={[1, 0, 0]} length={0.62} color={PHYS.b1}
+        opacity={b1Opacity} lineWidth={4} cone={0.15} />
     </group>
   );
 }
 
-function Detector({ measureOpacity, measureAxis, selected }) {
-  const pos = [0, -2.1, 0];
+// ── Detector: wired to the sample; readout beam brightens during measurement ──
+function Detector({ measureOpacity, showBeam, highlight }) {
   const active = measureOpacity > 0.4;
-  const color = selected ? "#9ff0c0" : active ? PHYS.measure : "#2f5f48";
+  const bodyColor = highlight ? "#9ff0c0" : active ? "#3f8f68" : "#2c5343";
+  const faceColor = active ? PHYS.measure : "#3a6f56";
+  const pos = [0, -1.2, 0];
   return (
     <group>
+      {/* Detector body. */}
       <mesh position={pos} rotation={[Math.PI / 2, 0, 0]}>
-        <boxGeometry args={[0.7, 0.5, 0.12]} />
-        <meshStandardMaterial color={color} metalness={0.3} roughness={0.6}
-          emissive={PHYS.measure} emissiveIntensity={active ? 0.5 : selected ? 0.35 : 0.06} />
+        <boxGeometry args={[0.5, 0.34, 0.16]} />
+        <meshStandardMaterial color={bodyColor} metalness={0.3} roughness={0.6}
+          emissive={PHYS.measure} emissiveIntensity={active ? 0.4 : highlight ? 0.3 : 0.05} />
       </mesh>
-      <Line points={[[0, -1.9, 0], pos]} color="#274a3a" lineWidth={2} />
-      {/* Readout beam along the measurement axis while measuring. */}
-      {measureAxis && (
-        <Line points={[[0, 0, 0], pos]} color={PHYS.measure} lineWidth={2}
-          transparent opacity={0.1 + 0.6 * measureOpacity} />
+      {/* Sensor face pointing at the sample. */}
+      <mesh position={[0, -1.02, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.42, 0.26]} />
+        <meshStandardMaterial color={faceColor} emissive={PHYS.measure}
+          emissiveIntensity={active ? 0.6 : 0.15} side={THREE.DoubleSide} />
+      </mesh>
+      {/* Lead connecting the detector to the sample region. */}
+      <Line points={[[0, -1.02, 0], [0, -0.22, 0]]} color="#2c5343" lineWidth={2} />
+      {/* Readout beam (only during measurement). */}
+      {showBeam && (
+        <Line points={[[0, 0, 0], [0, -1.02, 0]]} color={PHYS.measure} lineWidth={2}
+          transparent opacity={0.12 + 0.6 * measureOpacity} dashed dashScale={3} />
       )}
     </group>
   );
@@ -169,55 +192,50 @@ function Detector({ measureOpacity, measureAxis, selected }) {
 
 function HoverLabel({ id }) {
   const map = {
-    system:   { text: "Magnet · B₀ (System)",      pos: [0, 0, 2.35], color: PHYS.b0 },
-    sample:   { text: "Sample · T₁/T₂ (Environment)", pos: [0, 0, 0.55], color: "#ffcf90" },
-    drive:    { text: "RF source · B₁(t) (Pulse)",  pos: [2.1, 0, 0.55], color: PHYS.b1 },
-    detector: { text: "Detector (Measurement)",     pos: [0, -2.1, 0.55], color: PHYS.measure },
+    system:   { text: "Magnet — B₀ source",     pos: [0, 0, 1.35], color: PHYS.b0 },
+    sample:   { text: "Sample (spin ensemble)",  pos: [0, 0, 0.42], color: "#ffcf90" },
+    drive:    { text: "RF coil — B₁(t) source",  pos: [0, 0, -0.62], color: PHYS.b1 },
+    detector: { text: "Detector",                pos: [0, -1.2, 0.42], color: PHYS.measure },
   };
   const m = map[id];
   if (!m) return null;
   return (
-    <Text position={m.pos} fontSize={0.15} color={m.color} anchorX="center" anchorY="middle"
-      outlineWidth={0.012} outlineColor="#000">
+    <Text position={m.pos} fontSize={0.12} color={m.color} anchorX="center" anchorY="middle"
+      outlineWidth={0.01} outlineColor="#000">
       {m.text}
     </Text>
   );
 }
 
-function Scene({ emphasis, field, mixedness, selected, onSelect, onHover, hovered, measureAxis, controlsRef }) {
+function Scene({ emphasis, field, mixedness, selected, onSelect, onHover, hovered, controlsRef }) {
   const phase = drivePhase(field);
-  const b1Opacity      = Math.max(0.1, emphasis.b1);
-  const b0Opacity      = Math.max(0.12, emphasis.b0);
+  const b1Opacity      = Math.max(0.08, emphasis.b1);
+  const b0Opacity      = Math.max(0.10, emphasis.b0);
   const measureOpacity = Math.max(0.05, emphasis.measure);
+  const hl = (id) => selected === id || hovered === id;
 
   return (
     <>
-      <ambientLight intensity={0.5} />
+      <ambientLight intensity={0.55} />
       <directionalLight position={[4, 5, 4]} intensity={1.15} />
       <directionalLight position={[-3, -4, -2]} intensity={0.3} color="#7090ff" />
 
-      {/* Faint lab-bench ring for spatial grounding. */}
-      <mesh position={[0, 0, -1.95]} rotation={[0, 0, 0]}>
-        <ringGeometry args={[0.4, 2.6, 48]} />
-        <meshBasicMaterial color="#12203c" transparent opacity={0.25} side={THREE.DoubleSide} />
-      </mesh>
-
-      <Selectable id="system" selected={selected === "system"} onSelect={onSelect} onHover={onHover}>
-        <Magnet b0Opacity={b0Opacity} selected={selected === "system"} />
+      <Selectable id="system" onSelect={onSelect} onHover={onHover}>
+        <Magnet b0Opacity={b0Opacity} highlight={hl("system")} />
       </Selectable>
-      <Selectable id="drive" selected={selected === "drive"} onSelect={onSelect} onHover={onHover}>
-        <RFSource b1Opacity={b1Opacity} phase={phase} selected={selected === "drive"} />
+      <Selectable id="drive" onSelect={onSelect} onHover={onHover}>
+        <RFCoil b1Opacity={b1Opacity} phase={phase} highlight={hl("drive")} />
       </Selectable>
-      <Selectable id="detector" selected={selected === "detector"} onSelect={onSelect} onHover={onHover}>
-        <Detector measureOpacity={measureOpacity} measureAxis={measureAxis} selected={selected === "detector"} />
+      <Selectable id="detector" onSelect={onSelect} onHover={onHover}>
+        <Detector measureOpacity={measureOpacity} showBeam={emphasis.measure > 0.4} highlight={hl("detector")} />
       </Selectable>
-      <Selectable id="sample" selected={selected === "sample"} onSelect={onSelect} onHover={onHover}>
-        <Sample mixedness={mixedness} selected={selected === "sample"} />
+      <Selectable id="sample" onSelect={onSelect} onHover={onHover}>
+        <Sample mixedness={mixedness} highlight={hl("sample")} />
       </Selectable>
 
       <HoverLabel id={hovered ?? selected} />
 
-      <OrbitControls ref={controlsRef} enablePan={false} minDistance={2.2} maxDistance={11} makeDefault />
+      <OrbitControls ref={controlsRef} enablePan={false} minDistance={1.8} maxDistance={8} makeDefault />
     </>
   );
 }
@@ -228,8 +246,7 @@ export default function PhysicalLabScene({
   mixedness = 0,
   selected = null,
   onSelect,
-  measureAxis = null,
-  stageLabel = "",
+  caption = "",
   height = "100%",
   hud = null,
 }) {
@@ -249,7 +266,7 @@ export default function PhysicalLabScene({
     <div style={{ position: "relative", width: "100%", height, borderRadius: "10px", overflow: "hidden" }}>
       <Canvas
         camera={{ position: INITIAL_CAM, fov: 45, up: [0, 0, 1] }}
-        style={{ background: "radial-gradient(circle at 50% 35%, #0a1226 0%, #060810 70%)", cursor: hovered ? "pointer" : "default" }}
+        style={{ background: "radial-gradient(circle at 50% 40%, #0b1428 0%, #060810 72%)", cursor: hovered ? "pointer" : "default" }}
         onPointerMissed={() => onSelect?.(null)}
       >
         <Scene
@@ -260,7 +277,6 @@ export default function PhysicalLabScene({
           onSelect={onSelect}
           onHover={setHovered}
           hovered={hovered}
-          measureAxis={measureAxis}
           controlsRef={controlsRef}
         />
       </Canvas>
@@ -273,13 +289,14 @@ export default function PhysicalLabScene({
         Physical lab · real space
       </div>
 
-      {stageLabel && (
+      {caption && (
         <div style={{
           position: "absolute", bottom: "12px", left: "50%", transform: "translateX(-50%)",
-          color: "rgba(160,190,240,0.75)", fontSize: "11px", letterSpacing: "0.04em",
-          userSelect: "none", pointerEvents: "none",
+          background: "rgba(6,10,26,0.82)", border: `1px solid ${C.border}`, borderRadius: "18px",
+          padding: "5px 15px", color: "rgba(190,210,245,0.92)", fontSize: "12px",
+          userSelect: "none", pointerEvents: "none", whiteSpace: "nowrap",
         }}>
-          {stageLabel}
+          {caption}
         </div>
       )}
 

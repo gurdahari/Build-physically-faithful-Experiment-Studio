@@ -139,6 +139,23 @@ export function measurementProbabilities(bloch, axisKey = "z") {
   };
 }
 
+/**
+ * Plain-language caption for the physical lab scene — one short phrase that
+ * makes the current stage understandable without reading a legend.
+ *
+ * @param {string} stage STAGE constant
+ * @returns {string}
+ */
+export function physicalCaption(stage) {
+  switch (stage) {
+    case STAGE.PULSE:   return "RF pulse acting on sample";
+    case STAGE.FREE:    return "Free precession under B₀";
+    case STAGE.MEASURE: return "Measurement";
+    case STAGE.IDLE:
+    default:            return "Ready — press Play";
+  }
+}
+
 // ── Formatting helpers ────────────────────────────────────────────────────────
 export function formatTime(t) {
   if (t == null || !isFinite(t)) return "—";

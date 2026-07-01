@@ -20,7 +20,7 @@ import ExperimentTimeline from "./ExperimentTimeline.jsx";
 import EditExperimentDrawer from "./EditExperimentDrawer.jsx";
 import ScaleFrameBadge from "./ScaleFrameBadge.jsx";
 import InfoDrawer from "./InfoDrawer.jsx";
-import { hypot3, MEASURE_AXES } from "./stageModel.js";
+import { hypot3, MEASURE_AXES, physicalCaption, effectiveFieldMagnitude } from "./stageModel.js";
 import { FRAMES } from "../visualPhysics/visualizationTypes.js";
 import { C, PHYS, BTN, BTN_ACTIVE, BTN_PRIMARY, BTN_ICON } from "./theme.js";
 
@@ -77,6 +77,8 @@ export default function ExperimentStudio() {
   const measureAxisVec = measurement.enabled ? MEASURE_AXES[measurement.axis] : null;
   const stateMeasureAxis = emphasis.measure > 0.4 ? measureAxisVec : null;
   const showEffectiveArrow = frame !== FRAMES.EFFECTIVE && emphasis.omegaEff >= 0.5 && !!currentField;
+  const omegaEffMag = showEffectiveArrow ? effectiveFieldMagnitude(currentField) : null;
+  const caption = physicalCaption(stage.stage);
 
   const playLabel = status === "loading" ? "Running…" : playing ? "⏸ Pause" : (isStale && result ? "▶ Re-run" : "▶ Play");
   const showEditor = editorOpen && !focus;
@@ -135,8 +137,7 @@ export default function ExperimentStudio() {
               mixedness={mixedness}
               selected={labSelected}
               onSelect={selectObject}
-              measureAxis={measureAxisVec}
-              stageLabel={stage.detail}
+              caption={caption}
             />
           </div>
 
@@ -150,7 +151,7 @@ export default function ExperimentStudio() {
                 field={currentField}
                 showEffective={showEffectiveArrow}
                 measureAxis={stateMeasureAxis}
-                hud={<StateHud bloch={currentBlochRaw} readout={exp.measurementReadout} axis={measurement.axis} />}
+                hud={<StateHud bloch={currentBlochRaw} readout={exp.measurementReadout} axis={measurement.axis} omegaEffMag={omegaEffMag} />}
               />
             </div>
           )}
@@ -233,7 +234,7 @@ export default function ExperimentStudio() {
 }
 
 // ── State-space HUD chips (outside the canvas, no overlapping labels) ─────────
-function StateHud({ bloch, readout, axis }) {
+function StateHud({ bloch, readout, axis, omegaEffMag }) {
   const norm = bloch ? hypot3(bloch[0], bloch[1], bloch[2]) : 0;
   const purity = (1 + norm * norm) / 2;
   return (
@@ -247,6 +248,11 @@ function StateHud({ bloch, readout, axis }) {
         r = ({bloch.map(v => v.toFixed(2)).join(", ")})
       </div>
       <div style={{ color: C.label }}>|r| = {norm.toFixed(3)} · purity = {purity.toFixed(3)}</div>
+      {omegaEffMag != null && (
+        <div style={{ color: PHYS.omegaEff }}>
+          Ω_eff |Ω| = {omegaEffMag.toFixed(2)} rad/s
+        </div>
+      )}
       {readout && (
         <div style={{ color: PHYS.measure }}>
           P(+{axis}) = {readout.pPlus.toFixed(3)}

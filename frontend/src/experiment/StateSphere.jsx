@@ -17,7 +17,6 @@ import { useMemo, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Line, Text } from "@react-three/drei";
 import * as THREE from "three";
-import FieldVector from "../components/vis/FieldVector.jsx";
 import { PHYS, C } from "./theme.js";
 
 const INITIAL_CAM = [2.2, 2.2, 1.3];
@@ -35,6 +34,33 @@ function SubtleAxis({ dir, label }) {
         anchorX="center" anchorY="middle" outlineWidth={0.006} outlineColor="#000">
         {label}
       </Text>
+    </>
+  );
+}
+
+// Thin, low-opacity arrow from the origin — used for the effective field so it
+// stays visually subordinate to the Bloch vector and fully inside the panel.
+function ThinArrow({ direction, length, color, opacity = 0.55 }) {
+  const geom = useMemo(() => {
+    const [dx, dy, dz] = direction;
+    const mag = Math.hypot(dx, dy, dz);
+    if (mag < 1e-9 || length < 1e-6) return null;
+    const n = [dx / mag, dy / mag, dz / mag];
+    const CONE = 0.12;
+    const shaftEnd = n.map(c => c * (length - CONE));
+    const conePos = n.map(c => c * (length - CONE / 2));
+    const quat = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0), new THREE.Vector3(...n));
+    return { shaftEnd, conePos, quat };
+  }, [direction, length]);
+  if (!geom) return null;
+  return (
+    <>
+      <Line points={[[0, 0, 0], geom.shaftEnd]} color={color} lineWidth={2} transparent opacity={opacity} />
+      <mesh position={geom.conePos} quaternion={geom.quat}>
+        <coneGeometry args={[0.04, 0.12, 14]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.25} transparent opacity={opacity} />
+      </mesh>
     </>
   );
 }
@@ -62,14 +88,14 @@ function BlochArrow({ vec }) {
   );
   return (
     <>
-      <Line points={[[0, 0, 0], geom.shaftEnd]} color={PHYS.bloch} lineWidth={5} />
+      <Line points={[[0, 0, 0], geom.shaftEnd]} color={PHYS.bloch} lineWidth={6.5} />
       <mesh position={geom.conePos} quaternion={geom.coneQuat}>
-        <coneGeometry args={[0.055, 0.2, 20]} />
-        <meshStandardMaterial color={PHYS.bloch} emissive={PHYS.bloch} emissiveIntensity={0.35} />
+        <coneGeometry args={[0.062, 0.22, 22]} />
+        <meshStandardMaterial color={PHYS.bloch} emissive={PHYS.bloch} emissiveIntensity={0.45} />
       </mesh>
       <mesh position={geom.tip}>
-        <sphereGeometry args={[0.05, 20, 20]} />
-        <meshStandardMaterial color="#ffd0d8" emissive={PHYS.bloch} emissiveIntensity={0.45} />
+        <sphereGeometry args={[0.055, 20, 20]} />
+        <meshStandardMaterial color="#ffd0d8" emissive={PHYS.bloch} emissiveIntensity={0.55} />
       </mesh>
     </>
   );
@@ -85,12 +111,14 @@ function Scene({ bloch, trajectory, trajectoryAlt, field, showEffective, measure
     return pts;
   }, []);
 
+  // Effective field (rotation axis) — normalized to stay inside the unit sphere
+  // so it never extends past the panel and stays subordinate to the Bloch vector.
   const effVisual = useMemo(() => {
     if (!showEffective || !field) return null;
     const [fx, fy, fz] = field;
     const mag = Math.hypot(fx, fy, fz);
     if (mag < 1e-9) return null;
-    return { direction: [fx / mag, fy / mag, fz / mag], visualLength: 1.34 };
+    return { direction: [fx / mag, fy / mag, fz / mag], length: 0.8 };
   }, [showEffective, field]);
 
   return (
@@ -110,17 +138,18 @@ function Scene({ bloch, trajectory, trajectoryAlt, field, showEffective, measure
       <SubtleAxis dir={[0, 1, 0]} label="y" />
       <SubtleAxis dir={[0, 0, 1]} label="z" />
 
+      {/* Trajectory — secondary: modest width so it never merges with r. */}
       {trajectory && trajectory.length > 1 && (
-        <Line points={trajectory} color={PHYS.trajectory} lineWidth={2} transparent opacity={0.85} />
+        <Line points={trajectory} color={PHYS.trajectory} lineWidth={1.8} transparent opacity={0.75} />
       )}
       {trajectoryAlt && trajectoryAlt.length > 1 && (
-        <Line points={trajectoryAlt} color={PHYS.trajectoryAlt} lineWidth={1.8} transparent opacity={0.8} />
+        <Line points={trajectoryAlt} color={PHYS.trajectoryAlt} lineWidth={1.6} transparent opacity={0.7} />
       )}
 
-      {/* Effective field — the rotation axis — only while a pulse drives it. */}
+      {/* Effective field — thin, low-opacity, unlabeled; shown only while a pulse
+          drives it. Its name/value appear in the compact HUD chip, not here. */}
       {effVisual && (
-        <FieldVector direction={effVisual.direction} visualLength={effVisual.visualLength}
-          color={PHYS.omegaEff} label="Ω_eff" />
+        <ThinArrow direction={effVisual.direction} length={effVisual.length} color={PHYS.omegaEff} opacity={0.5} />
       )}
 
       {/* Measurement axis — subtle guide during readout. */}

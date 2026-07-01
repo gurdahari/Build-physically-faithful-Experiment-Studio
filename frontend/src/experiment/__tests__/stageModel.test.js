@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
 import {
   STAGE,
   hypot3, transverseAmplitude, effectiveFieldMagnitude, drivePhase,
-  classifyStage, emphasisForStage,
+  classifyStage, emphasisForStage, physicalCaption,
   measurementProbabilities, MEASURE_AXES,
   formatTime, formatScaleFactor,
 } from "../stageModel.js";
@@ -111,6 +111,16 @@ describe("emphasisForStage", () => {
       const full = [e.b0, e.b1, e.omegaEff].filter(w => w >= 0.9).length;
       expect(full).toBeLessThanOrEqual(2); // at most B1+Ω_eff together (same pulse axis)
     }
+  });
+});
+
+// ── physical caption ──────────────────────────────────────────────────────────
+describe("physicalCaption", () => {
+  it("gives a plain-language phrase per stage", () => {
+    expect(physicalCaption(STAGE.PULSE)).toMatch(/RF pulse/i);
+    expect(physicalCaption(STAGE.FREE)).toMatch(/precession/i);
+    expect(physicalCaption(STAGE.MEASURE)).toBe("Measurement");
+    expect(physicalCaption(STAGE.IDLE)).toMatch(/ready/i);
   });
 });
 
