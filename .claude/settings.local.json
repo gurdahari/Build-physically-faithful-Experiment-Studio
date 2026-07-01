@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"c:\\\\quantum_experiment_studio_mvp\\\\visualization\" -Recurse | ForEach-Object { $_.Name })"
+    ]
+  }
+}
