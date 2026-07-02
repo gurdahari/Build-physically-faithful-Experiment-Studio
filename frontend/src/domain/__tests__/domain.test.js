@@ -54,7 +54,8 @@ describe("HydrogenEntity", () => {
   it("marks correct active vs placeholder statuses", () => {
     expect(getResolution(RES.LABORATORY).status).toBe(RESOLUTION_STATUS.ACTIVE);
     expect(getResolution(RES.PROTON_SPIN).status).toBe(RESOLUTION_STATUS.ACTIVE);
-    expect(getResolution(RES.ATOMIC).status).toBe(RESOLUTION_STATUS.PLACEHOLDER);
+    // Milestone 3 activates the Atomic resolution (interactive |ψ|² visualization).
+    expect(getResolution(RES.ATOMIC).status).toBe(RESOLUTION_STATUS.ACTIVE);
     expect(getResolution(RES.PRECISION).status).toBe(RESOLUTION_STATUS.PLACEHOLDER);
     expect(getResolution(RES.PROTON_INTERNAL).status).toBe(RESOLUTION_STATUS.PLACEHOLDER);
   });
@@ -79,16 +80,21 @@ describe("Proton Spin contract", () => {
 
 describe("Atomic contract", () => {
   const c = getContract(CONTRACT.ATOMIC);
-  it("declares the analytic solver available but no rendering yet (Milestone 2)", () => {
+  it("declares the analytic backend solver and an active, honest |ψ|² visualization (Milestone 3)", () => {
     expect(c.solver).toMatch(/analytic backend solver/i);
     expect(c.solver).not.toMatch(/QuTiP is used/i);
     expect(c.theory).toMatch(/nonrelativistic electron.?proton Coulomb/i);
     const lim = c.limitations.join(" ");
-    expect(lim).toMatch(/Atomic analytic solver available/i);
-    expect(lim).toMatch(/Milestone 3/i);
-    expect(lim).toMatch(/No authoritative orbital rendering is active yet/i);
-    // The resolution stays a placeholder (no complete visual experience yet).
-    expect(getResolution(RES.ATOMIC).status).toBe(RESOLUTION_STATUS.PLACEHOLDER);
+    // Visualizes backend-sampled fields — not a photograph, not a material cloud.
+    expect(lim).toMatch(/Visualizes backend-sampled/i);
+    expect(lim).toMatch(/not a photograph/i);
+    expect(lim).toMatch(/does NOT contain exactly 100%/i);
+    // Forbids the classical/rotating/material-cloud misreadings.
+    const forb = c.forbiddenRepresentations.join(" ");
+    expect(forb).toMatch(/classical electron orbit/i);
+    expect(forb).toMatch(/rotating stationary orbital/i);
+    // The resolution is now active.
+    expect(getResolution(RES.ATOMIC).status).toBe(RESOLUTION_STATUS.ACTIVE);
   });
 });
 

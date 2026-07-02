@@ -149,3 +149,97 @@ Hydrogen inspector does not call it or rerun QuTiP.
 - Probability density / current are model-derived quantities, not photographs of
   reality; probability current is not a classical trajectory.
 - Continuity and any finite-difference cross-checks carry the documented FD error.
+
+---
+
+# Milestone 3 — interactive Atomic Hydrogen visualization (frontend)
+
+The Atomic resolution is now an **active, interactive** experience.  Selecting
+*Hydrogen → Atomic · Nonrelativistic* replaces the laboratory apparatus scene
+inside the existing viewport with the [AtomicHydrogenScene](../frontend/src/experiment/AtomicHydrogenScene.jsx),
+while the app shell (top bar, transport, timeline, inspector) is preserved and
+the Proton Spin (QuTiP) experiment state is left completely untouched.  The
+mathematical Bloch view is hidden while the atomic visualization is active.
+Pressing **Back / Esc** restores the lab scene with all experiment state intact.
+
+## Scientific-integrity contract
+
+Everything visible comes from the authoritative backend solver or from an
+**explicitly declared** visual mapping of backend data.  The frontend computes
+**no** atomic physics — no eigenfunctions, energies, evolution, current, or nodal
+locations.  The following are never shown: a classical electron orbit, an
+electron ball circling the proton, a stationary orbital rotated for visual
+effect, a material-cloud reading of |ψ|², or any frontend-invented evolution.
+The proton marker denotes **localization only** and has no rendered internal
+structure.  Each mapping is registered as a `VisualTruthDescriptor`
+([visualTruth.js](../frontend/src/domain/visualTruth.js), `visual.atomic.*`).
+
+## Data flow (no physics in React)
+
+| concern | module | responsibility |
+|---|---|---|
+| state presets | [atomicPresets.js](../frontend/src/domain/atomicPresets.js) | backend-valid normalized coefficient sets (plain data) |
+| declared mappings + requests | [atomicVisual.js](../frontend/src/domain/atomicVisual.js) | request builder, cache key, density→opacity/size, phase→hue, current→arrows, bounds, stationarity |
+| requests / cache / playback | [useAtomicHydrogen.js](../frontend/src/experiment/useAtomicHydrogen.js) | `POST /hydrogen/atomic/evaluate`, bounded LRU cache, `AbortController` cancellation, quality tiers, bounded-cadence time evolution, atomic time (separate from the experiment playhead) |
+| rendering | [AtomicHydrogenScene.jsx](../frontend/src/experiment/AtomicHydrogenScene.jsx) | shader point-cloud, proton marker, current arrows, section, scale indicator, energy inset, camera orbit/reset |
+| controls | [AtomicControls.jsx](../frontend/src/experiment/AtomicControls.jsx) | presets · representation mode · quality tier · time evolution · honest state info |
+
+The frontend only **requests / interpolates / caches / maps** backend values; it
+never computes eigenfunctions, energies, evolution, current, or nodes.
+
+## Presets
+
+`1s`, `2s`, `2p₋₁`, `2p₀`, `2p₊₁`, an **unequal-energy** superposition
+`(1s + 2p₀)/√2` (time-dependent interference), and a **degenerate** superposition
+`(2p₊₁ + 2p₋₁)/√2` (stationary density).  Whether a state evolves is decided by
+the **backend** (a non-empty `beat_frequencies_rad_s` list); the frontend only
+uses distinct principal quantum numbers as a pre-response hint.
+
+## Representation modes
+
+| mode | request | mapping |
+|---|---|---|
+| **Density** | volume `abs2` | point opacity ∝ \|ψ\|^{2·0.55} (γ curve), size grows with density, additive blending — the primary faithful representation |
+| **Density + Phase** | volume `abs2`+`phase` | same density points, hue = cyclic `arg(ψ)` wheel (declared interpretive mapping, not a literal color in space) |
+| **Probability Current** | volume `abs2`+`jx/jy/jz` (bounded resolution) | sparse capped arrows; **no arrows are drawn where the backend j ≈ 0** (stationary real orbitals); m=±1 show opposite circulation |
+| **Section View** | `xz` plane `abs2`+`phase` | a planar slab of points that reveals nodal structure directly |
+
+Nodal structure (radial and angular) is visible through the sampled field — the
+density simply vanishes at the backend-computed nodes.
+
+## Controlled time evolution
+
+Stationary states (empty backend beat list) are fetched **once** and never
+animated.  Only the unequal-energy superposition evolves: playback advances an
+**atomic** time (distinct from the experiment `playIndex`) and requests backend
+frames at a **bounded cadence** (`PLAYBACK_INTERVAL_MS`, one request per tick —
+never one request per rendered frame).  Quality is **Preview** during playback
+and a crisp **Standard** frame is requested on pause.  Every state / mode /
+quality / time change **cancels** any in-flight request (`AbortController` + a
+monotonic token), so a stale response can never replace newer state.  No requests
+are issued while the Atomic resolution is inactive, and in-flight requests are
+aborted on deactivation.
+
+## Honest finite-domain normalization
+
+The scale indicator and state-info readout show `∫|ψ|²` inside the displayed box
+and the omitted exponential tail from the backend
+[diagnostics](../backend/hydrogen/diagnostics.py).  The displayed finite box is
+**not** claimed to contain exactly 100% of the probability.
+
+## Performance
+
+Quality tiers (Preview 20 / Standard 30 / High 40 grid) trade resolution for
+responsiveness; the shader material is created once and reused; point geometry is
+rebuilt only per **backend frame** (bounded cadence), never per render frame; the
+response cache is bounded (`CACHE_MAX`); requests are debounced; and no hidden
+requests occur while the resolution is inactive.
+
+## Tests
+
+- Pure mappings: [atomicVisual.test.js](../frontend/src/domain/__tests__/atomicVisual.test.js),
+  [atomicPresets.test.js](../frontend/src/domain/__tests__/atomicPresets.test.js).
+- Structural / integrity guards: [atomicStudio.test.js](../frontend/src/experiment/__tests__/atomicStudio.test.js)
+  (active status, VisualTruth descriptors, no-physics-in-React, stale-request
+  cancellation, bounded-cadence playback, no invented evolution/rotation, scene
+  swap preserving the app shell).

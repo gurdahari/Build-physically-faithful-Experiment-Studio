@@ -15,6 +15,7 @@ import { NAV_LEVEL } from "../domain/hydrogenNav.js";
 import {
   HydrogenEntity, listResolutions, getResolution, getContractForResolution,
 } from "../domain/hydrogen.js";
+import AtomicControls from "./AtomicControls.jsx";
 
 const CARD = {
   position: "absolute", bottom: "12px", left: "12px", zIndex: 12,
@@ -96,7 +97,7 @@ function EntityView({ onSelectResolution, onBack }) {
 }
 
 // ── Resolution level: model contract or honest placeholder ───────────────────
-function ResolutionView({ resolutionId, onBack }) {
+function ResolutionView({ resolutionId, onBack, atomic }) {
   const res = getResolution(resolutionId);
   const contract = getContractForResolution(resolutionId);
   if (!res || !contract) {
@@ -142,12 +143,16 @@ function ResolutionView({ resolutionId, onBack }) {
         </div>
       ) : (
         <div>
-          <Row label="Solver / data" value={contract.solver} valueColor="#8fe0a8" />
-          <Row label="State" value={contract.stateRepresentation} />
-          <DofList label="Included DOF" items={contract.includedDegreesOfFreedom} color="#9fe0b8" />
-          <DofList label="Omitted DOF" items={contract.omittedDegreesOfFreedom} color={C.warn} />
-          <div style={{ marginTop: "6px", color: "rgba(150,180,220,0.85)", fontSize: "9px", lineHeight: "1.55" }}>
-            Validity: {contract.validityRange}
+          {/* Interactive atomic visualization controls (only when the hook is live). */}
+          {atomic && <AtomicControls atomic={atomic} />}
+          <div style={{ marginTop: atomic ? "9px" : 0, paddingTop: atomic ? "7px" : 0, borderTop: atomic ? `1px solid ${C.border}` : "none" }}>
+            <Row label="Solver / data" value={contract.solver} valueColor="#8fe0a8" />
+            <Row label="State" value={contract.stateRepresentation} />
+            <DofList label="Included DOF" items={contract.includedDegreesOfFreedom} color="#9fe0b8" />
+            <DofList label="Omitted DOF" items={contract.omittedDegreesOfFreedom} color={C.warn} />
+            <div style={{ marginTop: "6px", color: "rgba(150,180,220,0.85)", fontSize: "9px", lineHeight: "1.55" }}>
+              Validity: {contract.validityRange}
+            </div>
           </div>
         </div>
       )}
@@ -155,10 +160,10 @@ function ResolutionView({ resolutionId, onBack }) {
   );
 }
 
-export default function HydrogenInspector({ nav, onSelectResolution, onBack }) {
+export default function HydrogenInspector({ nav, onSelectResolution, onBack, atomic }) {
   if (!nav) return null;
   if (nav.level === NAV_LEVEL.RESOLUTION) {
-    return <ResolutionView resolutionId={nav.resolutionId} onBack={onBack} />;
+    return <ResolutionView resolutionId={nav.resolutionId} onBack={onBack} atomic={atomic} />;
   }
   if (nav.level === NAV_LEVEL.HYDROGEN) {
     return <EntityView onSelectResolution={onSelectResolution} onBack={onBack} />;

@@ -88,7 +88,7 @@ export const HYDROGEN_CONTRACTS = {
 
   [CONTRACT.ATOMIC]: createModelContract({
     id: CONTRACT.ATOMIC, entityId: E, resolutionId: RES.ATOMIC,
-    modelName: "Atomic nonrelativistic model (analytic solver available)",
+    modelName: "Atomic nonrelativistic model",
     theory: "Nonrelativistic electron–proton Coulomb model (relative coordinate)",
     stateRepresentation: "Relative-coordinate wavefunction ψ(r); basis 1s, 2s, 2p",
     governingEquations: ["H₀ = -ℏ²/(2μ)∇² - e²/(4πε₀r)", "Ψ(t) = Σ cᵢ ψᵢ e^{-iEᵢt/ℏ}"],
@@ -110,15 +110,25 @@ export const HYDROGEN_CONTRACTS = {
     derivedQuantities: ["ψ", "|ψ|²", "phase", "probability current"],
     validityRange: "Bound nonrelativistic Coulomb states; finite-domain sampling omits tail probability",
     uncertaintyStatement: "Analytic closed-form amplitudes; finite-domain normalization reported by diagnostics",
-    allowedRepresentations: ["numerical sampled fields (via API)"],
-    forbiddenRepresentations: ["any rendered orbital or probability cloud (none is authoritative yet)"],
+    allowedRepresentations: [
+      "electron position probability density |ψ(r,t)|² (sampled by backend)",
+      "arg(ψ) phase hue (declared interpretive mapping)",
+      "probability-current vector field (sampled by backend)",
+      "planar section of the sampled fields",
+    ],
+    forbiddenRepresentations: [
+      "classical electron orbit or electron ball circling the proton",
+      "rotating stationary orbital for visual effect",
+      "material-cloud interpretation of the probability density",
+      "any frontend-invented quantum evolution",
+    ],
     limitations: [
-      "Atomic analytic solver available (backend).",
-      "Scientific orbital visualization will be added in Milestone 3.",
-      "No authoritative orbital rendering is active yet.",
+      "Visualizes backend-sampled |ψ|², phase, and probability current — not a photograph of an atom.",
+      "The proton marker denotes localization only; it has no rendered internal structure.",
+      "The displayed finite box does not contain exactly 100% of the probability (tail is reported).",
       "Not a Dirac / QED / finite-proton-size / hyperfine / environmental calculation.",
     ],
-    modelVersion: "1.0.0",
+    modelVersion: "1.1.0",
   }),
 
   [CONTRACT.PRECISION]: createModelContract({
@@ -191,10 +201,10 @@ export const HYDROGEN_RESOLUTIONS = [
   }),
   createPhysicalResolution({
     id: RES.ATOMIC, entityId: E, displayName: "Atomic · Nonrelativistic",
-    description: "Nonrelativistic electron–proton Coulomb model. Analytic backend solver available; scientific visualization arrives in Milestone 3.",
-    status: RESOLUTION_STATUS.PLACEHOLDER, modelContractId: CONTRACT.ATOMIC,
+    description: "Nonrelativistic electron–proton Coulomb model with interactive |ψ(r,t)|² visualization sampled from the authoritative backend solver.",
+    status: RESOLUTION_STATUS.ACTIVE, modelContractId: CONTRACT.ATOMIC,
     parentResolutionId: RES.PROTON_SPIN, childResolutionIds: [RES.PRECISION],
-    limitations: "Analytic solver available (backend); no authoritative orbital rendering active yet.",
+    limitations: "Visualizes backend-sampled probability density, phase, and current; finite-domain tail is reported, not hidden.",
   }),
   createPhysicalResolution({
     id: RES.PRECISION, entityId: E, displayName: "Precision Atomic Structure",

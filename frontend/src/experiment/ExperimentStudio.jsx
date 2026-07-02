@@ -25,8 +25,10 @@ import { classifyPulseOperation, isRfActive, pulseTypeLabel, pulseAngleLabel, pu
 import { focusTitle, focusCardFields, nextFocus } from "./focusModel.js";
 import FocusCard from "./FocusCard.jsx";
 import HydrogenInspector from "./HydrogenInspector.jsx";
+import AtomicHydrogenScene from "./AtomicHydrogenScene.jsx";
+import { useAtomicHydrogen } from "./useAtomicHydrogen.js";
 import { navReducer, initialNav, NAV_LEVEL, showsHydrogenInspector } from "../domain/hydrogenNav.js";
-import { getContractForResolution, isActive } from "../domain/hydrogen.js";
+import { getContractForResolution, isActive, RES } from "../domain/hydrogen.js";
 import { FRAMES } from "../visualPhysics/visualizationTypes.js";
 import { C, PHYS, BTN, BTN_ACTIVE, BTN_PRIMARY, BTN_ICON } from "./theme.js";
 
@@ -55,6 +57,12 @@ export default function ExperimentStudio() {
   // Semantic model-navigation state — kept SEPARATE from camera/focus state.
   const [nav, dispatchNav] = useReducer(navReducer, initialNav);
   const [transition, setTransition] = useState(null);       // model-change message (transient)
+
+  // Atomic Hydrogen visualization is active only at the Atomic resolution. Its
+  // hook (requests/cache/playback) is entirely separate from the Proton Spin
+  // experiment (useExperiment) and issues NO requests while inactive.
+  const atomicActive = nav.level === NAV_LEVEL.RESOLUTION && nav.resolutionId === RES.ATOMIC;
+  const atomic = useAtomicHydrogen(atomicActive);
 
   const clearCameraFocus = useCallback(() => {
     setFocusedObject(null); setFocusLevel(1); setSelection(null);
@@ -216,6 +224,25 @@ export default function ExperimentStudio() {
       })
     : [];
 
+  // Exactly one contextual card: the Hydrogen inspector (carrying live atomic
+  // controls at the Atomic resolution) OR the object focus card — never both.
+  const sceneHud = showsHydrogenInspector(nav) ? (
+    <HydrogenInspector
+      nav={nav}
+      atomic={atomicActive ? atomic : null}
+      onSelectResolution={selectResolution}
+      onBack={goBack}
+    />
+  ) : focusedObject ? (
+    <FocusCard
+      objectId={focusedObject}
+      title={focusTitle(focusedObject)}
+      fields={focusFields}
+      level={focusLevel}
+      onBack={goBack}
+    />
+  ) : null;
+
   const playLabel = status === "loading" ? "Running…" : playing ? "⏸ Pause" : (isStale && result ? "▶ Re-run" : "▶ Play");
   const showEditor = editorOpen && !focus;
   // Old trajectory belongs to a previous configuration — dim it, don't present as current.
@@ -302,44 +329,38 @@ export default function ExperimentStudio() {
               )}
             </div>
           )}
-          {/* Physical lab (always) */}
-          <div style={{ flex: showMath ? "1 1 50%" : "1 1 100%", minWidth: 0, position: "relative" }}>
-            <PhysicalLabScene
-              emphasis={emphasis}
-              driveLevel={driveLevel}
-              rfActive={rfActive}
-              pulsePhase={pulsePhase}
-              signalLevel={signalMagnitude}
-              signalPhase={signalPhase}
-              mixedness={mixedness}
-              stateVec={currentBlochRaw}
-              hasResult={!!result}
-              measurementActive={measurementActive}
-              measurementOutcome={measurementOutcome}
-              closeup={closeup}
-              focusedObject={focusedObject}
-              focusLevel={focusLevel}
-              selected={labSelected}
-              onSelect={selectObject}
-              caption={caption}
-              hud={
-                showsHydrogenInspector(nav) ? (
-                  <HydrogenInspector nav={nav} onSelectResolution={selectResolution} onBack={goBack} />
-                ) : focusedObject ? (
-                  <FocusCard
-                    objectId={focusedObject}
-                    title={focusTitle(focusedObject)}
-                    fields={focusFields}
-                    level={focusLevel}
-                    onBack={goBack}
-                  />
-                ) : null
-              }
-            />
+          {/* Scene: the Atomic |ψ|² visualization REPLACES the lab scene at the
+              Atomic resolution; the app shell, inspector, transport, and timeline
+              stay, and the Proton Spin experiment state is preserved untouched. */}
+          <div style={{ flex: (showMath && !atomicActive) ? "1 1 50%" : "1 1 100%", minWidth: 0, position: "relative" }}>
+            {atomicActive ? (
+              <AtomicHydrogenScene atomic={atomic} hud={sceneHud} />
+            ) : (
+              <PhysicalLabScene
+                emphasis={emphasis}
+                driveLevel={driveLevel}
+                rfActive={rfActive}
+                pulsePhase={pulsePhase}
+                signalLevel={signalMagnitude}
+                signalPhase={signalPhase}
+                mixedness={mixedness}
+                stateVec={currentBlochRaw}
+                hasResult={!!result}
+                measurementActive={measurementActive}
+                measurementOutcome={measurementOutcome}
+                closeup={closeup}
+                focusedObject={focusedObject}
+                focusLevel={focusLevel}
+                selected={labSelected}
+                onSelect={selectObject}
+                caption={caption}
+                hud={sceneHud}
+              />
+            )}
           </div>
 
-          {/* Mathematical state space (optional) */}
-          {showMath && (
+          {/* Mathematical state space (optional; hidden in Atomic visualization) */}
+          {showMath && !atomicActive && (
             <div style={{ flex: "1 1 50%", minWidth: 0, borderLeft: `1px solid ${C.border}` }}>
               <StateSphere
                 bloch={currentBloch}
