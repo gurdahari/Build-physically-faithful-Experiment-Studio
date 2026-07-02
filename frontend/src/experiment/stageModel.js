@@ -139,18 +139,32 @@ export function measurementProbabilities(bloch, axisKey = "z") {
   };
 }
 
+// Transverse-signal level above which free evolution is dominated by the
+// free-induction signal the precessing magnetization induces in the detector.
+export const SIGNAL_CAPTION_THRESHOLD = 0.05;
+
 /**
  * Plain-language caption for the physical lab scene — one short phrase that
  * makes the current stage understandable without reading a legend.
  *
+ * During free evolution the caption reflects what is physically dominant: if the
+ * backend transverse signal is significant, the precessing magnetization is
+ * inducing a signal in the detector ("Signal induced in detector"); otherwise it
+ * is plain precession about B₀.
+ *
  * @param {string} stage STAGE constant
+ * @param {object} [opts]
+ * @param {number} [opts.signalLevel] backend detector_signal_magnitude ∈ [0,1]
  * @returns {string}
  */
-export function physicalCaption(stage) {
+export function physicalCaption(stage, { signalLevel = 0 } = {}) {
   switch (stage) {
     case STAGE.PULSE:   return "RF pulse acting on sample";
-    case STAGE.FREE:    return "Free precession under B₀";
-    case STAGE.MEASURE: return "Measurement";
+    case STAGE.FREE:
+      return signalLevel > SIGNAL_CAPTION_THRESHOLD
+        ? "Signal induced in detector"
+        : "Free precession under B₀";
+    case STAGE.MEASURE: return "Measurement outcome recorded";
     case STAGE.IDLE:
     default:            return "Ready — press Play";
   }

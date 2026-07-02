@@ -120,6 +120,30 @@ def _final_diagnostics(rho, final_state: Vec3) -> dict:
     }
 
 
+# ── Projective measurement (distinct from continuous acquisition) ─────────────
+
+def _sample_projective_measurement(final_state: Vec3) -> dict:
+    """Sample a single projective Z-basis measurement outcome for the final state.
+
+    Uses the Born rule P(|0⟩) = (1 + z)/2 with QuTiP's convention |0⟩ = z=+1.
+    A backend-generated sampled outcome (0 → |0⟩, 1 → |1⟩) is returned alongside
+    the probabilities so the frontend can show a genuine collapse result rather
+    than reusing the continuous-signal animation.
+    """
+    z = float(final_state[2])
+    p0 = max(0.0, min(1.0, (1.0 + z) / 2.0))
+    p1 = 1.0 - p0
+    rng = np.random.default_rng()
+    outcome = 0 if rng.random() < p0 else 1
+    return {
+        "basis":   "z",
+        "p0":      p0,
+        "p1":      p1,
+        "outcome": outcome,
+        "label":   "|0⟩" if outcome == 0 else "|1⟩",
+    }
+
+
 # ── Classical drive-field helper ─────────────────────────────────────────────
 
 def _field_at_tlist(item: dict, tlist: np.ndarray) -> list[list[float]]:
@@ -234,6 +258,22 @@ def simulate_experiment(
 
     final_state = state_after_items[-1] if state_after_items else list(initial_bloch)
 
+    # ── Detector signal (continuous acquisition observable) ──────────────────
+    # For an NMR-like experiment the detector picks up the transverse
+    # magnetization: the quadrature signal (<σx>, <σy>).  These are exactly the
+    # already-computed Bloch x/y components — derived here in the response layer
+    # so the frontend never re-derives detector physics.
+    #   signal_real(t)      = <σx>(t) = trajectory_x
+    #   signal_imag(t)      = <σy>(t) = trajectory_y
+    #   signal_magnitude(t) = √(signal_real² + signal_imag²)   (== coherence)
+    # Normalized representative ensemble signal: |signal| ≤ 1 (no physical
+    # voltage scale is defined for a single spin-½).
+    det_real = [p[0] for p in all_trajectory]
+    det_imag = [p[1] for p in all_trajectory]
+    det_mag  = [math.hypot(p[0], p[1]) for p in all_trajectory]
+
+    measurement_sample = _sample_projective_measurement(final_state)
+
     return {
         "times":             all_times,
         "trajectory":        all_trajectory,
@@ -247,4 +287,10 @@ def simulate_experiment(
         # Diagnostic arrays (always present; meaningful even for unitary evolution)
         **all_diag,
         "final_diagnostics": _final_diagnostics(last_rho, final_state),
+        # Detector signal (continuous acquisition) — same time indexing as trajectory
+        "detector_signal_real":      det_real,
+        "detector_signal_imag":      det_imag,
+        "detector_signal_magnitude": det_mag,
+        # Projective measurement of the final state (Z basis) — backend-sampled outcome
+        "measurement_sample":        measurement_sample,
     }

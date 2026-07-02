@@ -61,9 +61,12 @@ export default function ScaleFrameBadge({ scaleMeta, frame }) {
           {ts && <Row label="Physical time" value={`${ts.physicalTime?.toFixed(2)} s`} />}
           {ts && <Row label="Playback time" value={`${ts.playbackTime?.toFixed(2)} s`} />}
           {ts && <Row label="Time scale" value={speedStr} valueColor="#ffcf90" />}
-          <Row label="Field arrows" value="normalized" valueColor="#ffcf90" />
+          <Row label="Pulse view" value="envelope (no carrier)" valueColor="#8fd8e0" />
+          <Row label="B₁ field" value="glyphs · normalized" valueColor="#ffcf90" />
+          <Row label="Drive units" value="Ω rad/s (no γ)" valueColor="#ffcf90" />
+          <Row label="Detector" value="normalized signal" valueColor="#8fe0a8" />
           <Row label="Bloch |r|" value="exact (physical)" valueColor="#8fe0a8" />
-          <Row label="Carrier" value={frame === "lab" ? "shown (slowed)" : "folded out"} />
+          <Row label="Carrier" value={frame === "lab" ? "shown (slowed)" : "not displayed"} />
           {scaleMeta?.hasDecoherence && <Row label="System" value="open (Lindblad)" valueColor="#e0a040" />}
           {warning && (
             <div style={{ color: C.warn, fontSize: "8.5px", marginTop: "6px", lineHeight: "1.5" }}>
@@ -71,8 +74,9 @@ export default function ScaleFrameBadge({ scaleMeta, frame }) {
             </div>
           )}
           <div style={{ color: C.dim, fontSize: "8px", marginTop: "6px", lineHeight: "1.5" }}>
-            Field-arrow lengths show direction only, not magnitude. All state
-            evolution is computed by the QuTiP backend.
+            The B₁ field shows Hamiltonian drive strength in angular-frequency units
+            (Ω rad/s), not tesla — no γ conversion. Glyph length is normalized; opacity
+            follows the backend magnitude. Carrier folded out. All evolution is QuTiP.
           </div>
         </div>
       )}

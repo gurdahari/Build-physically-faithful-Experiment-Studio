@@ -101,7 +101,7 @@ function BlochArrow({ vec }) {
   );
 }
 
-function Scene({ bloch, trajectory, trajectoryAlt, field, showEffective, measureAxis, controlsRef }) {
+function Scene({ bloch, trajectory, futureTrajectory, segmentBreaks, trajectoryAlt, field, showEffective, measureAxis, controlsRef }) {
   const equator = useMemo(() => {
     const pts = [];
     for (let i = 0; i <= 96; i++) {
@@ -138,13 +138,24 @@ function Scene({ bloch, trajectory, trajectoryAlt, field, showEffective, measure
       <SubtleAxis dir={[0, 1, 0]} label="y" />
       <SubtleAxis dir={[0, 0, 1]} label="z" />
 
-      {/* Trajectory — secondary: modest width so it never merges with r. */}
+      {/* Faint future-path preview (Advanced, optional) — drawn under the past. */}
+      {futureTrajectory && futureTrajectory.length > 1 && (
+        <Line points={futureTrajectory} color={PHYS.trajectory} lineWidth={1} transparent opacity={0.14} />
+      )}
+      {/* Trajectory travelled so far — secondary: modest width, never merges with r. */}
       {trajectory && trajectory.length > 1 && (
-        <Line points={trajectory} color={PHYS.trajectory} lineWidth={1.8} transparent opacity={0.75} />
+        <Line points={trajectory} color={PHYS.trajectory} lineWidth={1.8} transparent opacity={0.8} />
       )}
       {trajectoryAlt && trajectoryAlt.length > 1 && (
         <Line points={trajectoryAlt} color={PHYS.trajectoryAlt} lineWidth={1.6} transparent opacity={0.7} />
       )}
+      {/* Subtle segment breaks at item boundaries reached so far. */}
+      {segmentBreaks && segmentBreaks.map((p, i) => (
+        <mesh key={i} position={p}>
+          <sphereGeometry args={[0.028, 12, 12]} />
+          <meshStandardMaterial color="#cfe0ff" emissive="#88a8e0" emissiveIntensity={0.5} transparent opacity={0.8} />
+        </mesh>
+      ))}
 
       {/* Effective field — thin, low-opacity, unlabeled; shown only while a pulse
           drives it. Its name/value appear in the compact HUD chip, not here. */}
@@ -168,6 +179,8 @@ function Scene({ bloch, trajectory, trajectoryAlt, field, showEffective, measure
 export default function StateSphere({
   bloch = [0, 0, 1],
   trajectory = null,
+  futureTrajectory = null,
+  segmentBreaks = null,
   trajectoryAlt = null,
   field = null,
   showEffective = false,
@@ -191,6 +204,8 @@ export default function StateSphere({
         <Scene
           bloch={bloch}
           trajectory={trajectory}
+          futureTrajectory={futureTrajectory}
+          segmentBreaks={segmentBreaks}
           trajectoryAlt={trajectoryAlt}
           field={field}
           showEffective={showEffective}

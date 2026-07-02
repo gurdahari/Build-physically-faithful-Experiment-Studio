@@ -119,8 +119,16 @@ describe("physicalCaption", () => {
   it("gives a plain-language phrase per stage", () => {
     expect(physicalCaption(STAGE.PULSE)).toMatch(/RF pulse/i);
     expect(physicalCaption(STAGE.FREE)).toMatch(/precession/i);
-    expect(physicalCaption(STAGE.MEASURE)).toBe("Measurement");
+    expect(physicalCaption(STAGE.MEASURE)).toMatch(/measurement/i);
     expect(physicalCaption(STAGE.IDLE)).toMatch(/ready/i);
+  });
+
+  it("free evolution with a transverse signal reads 'Signal induced in detector'", () => {
+    expect(physicalCaption(STAGE.FREE, { signalLevel: 0.4 })).toMatch(/signal induced/i);
+    // No transverse signal (e.g. state along ±Z) → plain precession.
+    expect(physicalCaption(STAGE.FREE, { signalLevel: 0 })).toMatch(/precession/i);
+    // A pulse caption is unaffected by the signal level.
+    expect(physicalCaption(STAGE.PULSE, { signalLevel: 0.9 })).toMatch(/RF pulse/i);
   });
 });
 

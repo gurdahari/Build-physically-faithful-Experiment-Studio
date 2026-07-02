@@ -12,7 +12,7 @@
  * the same backend playhead index — so they stay synchronized.
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useExperiment } from "./useExperiment.js";
 import PhysicalLabScene from "./PhysicalLabScene.jsx";
 import StateSphere from "./StateSphere.jsx";
@@ -21,6 +21,9 @@ import EditExperimentDrawer from "./EditExperimentDrawer.jsx";
 import ScaleFrameBadge from "./ScaleFrameBadge.jsx";
 import InfoDrawer from "./InfoDrawer.jsx";
 import { hypot3, MEASURE_AXES, physicalCaption, effectiveFieldMagnitude } from "./stageModel.js";
+import { classifyPulseOperation, isRfActive, pulseTypeLabel, pulseAngleLabel, pulseAxisName, pulseAxisLabel, driveFieldLabel, OP } from "./pulseModel.js";
+import { focusTitle, focusCardFields, nextFocus } from "./focusModel.js";
+import FocusCard from "./FocusCard.jsx";
 import { FRAMES } from "../visualPhysics/visualizationTypes.js";
 import { C, PHYS, BTN, BTN_ACTIVE, BTN_PRIMARY, BTN_ICON } from "./theme.js";
 
@@ -42,15 +45,27 @@ export default function ExperimentStudio() {
 
   const [editorOpen, setEditorOpen] = useState(true);
   const [showMath, setShowMath]     = useState(false);
-  const [focus, setFocus]           = useState(false);
-  const [selection, setSelection]   = useState(null); // { kind, itemId? }
+  const [focus, setFocus]           = useState(false);   // full-screen focus mode
+  const [selection, setSelection]   = useState(null);    // { kind, itemId? }
+  const [focusedObject, setFocusedObject] = useState(null); // object-focused inspection
+  const [focusLevel, setFocusLevel] = useState(1);          // 1 = close-up, 2 = macro
 
-  // Selecting anything opens the editor and records the selection (contextual).
-  const selectObject = useCallback((id) => {
-    if (id == null) { setSelection(null); return; }
-    setSelection({ kind: id });
-    setEditorOpen(true);
+  // Return to the default lab framing (empty-space click, Back control, Escape).
+  const clearFocus = useCallback(() => {
+    setFocusedObject(null); setFocusLevel(1); setSelection(null);
   }, []);
+
+  // Clicking a lab object focuses the camera on it and records the selection
+  // (so an open editor jumps to the right group). It does NOT force a panel open.
+  // First click → Close-up; second click on the same object → Macro; a different
+  // object → that object's Close-up.
+  const selectObject = useCallback((id) => {
+    if (id == null) { clearFocus(); return; }
+    const next = nextFocus({ object: focusedObject, level: focusLevel }, id);
+    setSelection({ kind: id });
+    setFocusedObject(next.object);
+    setFocusLevel(next.level);
+  }, [clearFocus, focusedObject, focusLevel]);
   const selectItem = useCallback((itemId) => {
     setSelection({ kind: "item", itemId });
     setEditorOpen(true);
@@ -60,12 +75,21 @@ export default function ExperimentStudio() {
     setEditorOpen(true);
   }, []);
 
+  // Escape exits object focus (keyboard accessibility).
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") clearFocus(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [clearFocus]);
+
   const {
     playing, status, isStale, result,
     currentBloch, currentBlochRaw, currentField, currentItemIndex,
     currentTime, progress, stage, emphasis,
-    displayTrajectory, displayTrajectoryAlt, scaleMeta, frame,
-    measurement, items,
+    displayTrajectory, trajectoryToNow, segmentBreaks, displayTrajectoryAlt, scaleMeta, frame,
+    measurement, items, decoherence,
+    driveLevel, driveMagnitude, signalMagnitude, signalPhase, measurementSample, measurementReadout,
+    autoCloseup, showFuturePath,
   } = exp;
 
   const mixedness = useMemo(() => {
@@ -78,10 +102,72 @@ export default function ExperimentStudio() {
   const stateMeasureAxis = emphasis.measure > 0.4 ? measureAxisVec : null;
   const showEffectiveArrow = frame !== FRAMES.EFFECTIVE && emphasis.omegaEff >= 0.5 && !!currentField;
   const omegaEffMag = showEffectiveArrow ? effectiveFieldMagnitude(currentField) : null;
-  const caption = physicalCaption(stage.stage);
+
+  // Active sequence item → physical operation (transverse RF vs longitudinal vs
+  // virtual Z). The RF coil/field is shown only for a real transverse pulse.
+  const currentItem = result && currentItemIndex != null ? items[currentItemIndex] : null;
+  const operation = classifyPulseOperation(currentItem);
+  const rfActive = isRfActive(operation);
+  const pulsePhase = currentItem?.type === "pulse" ? (currentItem.phase ?? 0) : 0;
+
+  // Close-up camera during a pulse (stage-driven; Advanced preference).
+  const closeup = autoCloseup && stage.stage === "pulse";
+
+  // Continuous acquisition (transverse magnetization) vs projective measurement.
+  const measurementActive = measurement.enabled && stage.stage === "measure";
+
+  // Scene caption: pulse angle + axis + drive units · virtual Z · else stage caption.
+  const caption =
+    operation === OP.VIRTUAL_Z ? "Virtual Z rotation · frame update"
+    : rfActive && currentItem   ? `${pulseAngleLabel(currentItem)} · ${driveFieldLabel(driveMagnitude)}`
+    : physicalCaption(stage.stage, { signalLevel: signalMagnitude });
+
+  // Compact current-operation chip (outside the sphere): X pulse / Free Z / …
+  const operationLabel =
+    operation === OP.RF_TRANSVERSE ? `${pulseAxisName(pulsePhase) ?? "RF"} pulse`
+    : operation === OP.VIRTUAL_Z   ? "Virtual Z"
+    : stage.stage === "measure"    ? "Measurement"
+    : (stage.stage === "free" || operation === OP.LONGITUDINAL)
+        ? (decoherence.enabled ? "Relaxation" : "Free Z evolution")
+    : stage.label;
+  const measurementOutcome = useMemo(() => {
+    if (!measurementActive) return null;
+    if (measurement.axis === "z" && measurementSample) {
+      return { basis: "z", label: measurementSample.label, p: measurementSample.p0 != null
+        ? (measurementSample.outcome === 0 ? measurementSample.p0 : measurementSample.p1) : null, derived: false };
+    }
+    // Non-Z basis: derived projection of the backend Bloch vector (labeled derived).
+    if (measurementReadout) {
+      const outcome = measurementReadout.pPlus >= measurementReadout.pMinus ? "+" : "−";
+      return {
+        basis: measurement.axis, derived: true,
+        label: `${outcome}${measurement.axis}`,
+        p: Math.max(measurementReadout.pPlus, measurementReadout.pMinus),
+      };
+    }
+    return null;
+  }, [measurementActive, measurement.axis, measurementSample, measurementReadout]);
+
+  // One compact contextual card for the focused object — all values are the same
+  // backend-synced quantities at the current playIndex (no new physics).
+  const focusFields = focusedObject
+    ? focusCardFields(focusedObject, {
+        bloch: currentBlochRaw,
+        field: currentField,
+        driveMagnitude,
+        pulseAxis: rfActive ? pulseAxisLabel(pulsePhase) : "—",
+        signalMagnitude,
+        signalPhase,
+        measurementActive,
+        measurementOutcome,
+        uniformField: true,
+      })
+    : [];
 
   const playLabel = status === "loading" ? "Running…" : playing ? "⏸ Pause" : (isStale && result ? "▶ Re-run" : "▶ Play");
   const showEditor = editorOpen && !focus;
+  // Old trajectory belongs to a previous configuration — dim it, don't present as current.
+  const staleView = isStale && !!result && status !== "loading";
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, background: C.bg }}>
@@ -107,7 +193,7 @@ export default function ExperimentStudio() {
               borderRadius: "20px", padding: "4px 12px",
             }}>
               <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: stageColor(stage.stage) }} />
-              <span style={{ color: C.text, fontSize: "11px" }}>{stage.label}</span>
+              <span style={{ color: C.text, fontSize: "11px" }}>{operationLabel}</span>
             </span>
           </div>
 
@@ -128,16 +214,49 @@ export default function ExperimentStudio() {
 
       {/* ── Stage row: scenes (+ optional editor) ──────────────────────────── */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        <div style={{ flex: 1, display: "flex", minWidth: 0, gap: "1px" }}>
+        <div style={{
+          flex: 1, display: "flex", minWidth: 0, gap: "1px", position: "relative",
+          opacity: staleView ? 0.5 : 1, filter: staleView ? "grayscale(0.35)" : "none",
+          transition: "opacity 0.2s, filter 0.2s",
+        }}>
+          {staleView && (
+            <div style={{
+              position: "absolute", top: "12px", left: "50%", transform: "translateX(-50%)", zIndex: 20,
+              background: "rgba(40,30,6,0.9)", border: "1px solid rgba(180,130,40,0.5)", borderRadius: "16px",
+              padding: "5px 14px", color: C.warn, fontSize: "11px", userSelect: "none", pointerEvents: "none",
+            }}>
+              ⚠ Stale result — press Re-run
+            </div>
+          )}
           {/* Physical lab (always) */}
           <div style={{ flex: showMath ? "1 1 50%" : "1 1 100%", minWidth: 0, position: "relative" }}>
             <PhysicalLabScene
               emphasis={emphasis}
-              field={currentField}
+              driveLevel={driveLevel}
+              rfActive={rfActive}
+              pulsePhase={pulsePhase}
+              signalLevel={signalMagnitude}
+              signalPhase={signalPhase}
               mixedness={mixedness}
+              stateVec={currentBlochRaw}
+              hasResult={!!result}
+              measurementActive={measurementActive}
+              measurementOutcome={measurementOutcome}
+              closeup={closeup}
+              focusedObject={focusedObject}
+              focusLevel={focusLevel}
               selected={labSelected}
               onSelect={selectObject}
               caption={caption}
+              hud={focusedObject ? (
+                <FocusCard
+                  objectId={focusedObject}
+                  title={focusTitle(focusedObject)}
+                  fields={focusFields}
+                  level={focusLevel}
+                  onBack={clearFocus}
+                />
+              ) : null}
             />
           </div>
 
@@ -146,7 +265,9 @@ export default function ExperimentStudio() {
             <div style={{ flex: "1 1 50%", minWidth: 0, borderLeft: `1px solid ${C.border}` }}>
               <StateSphere
                 bloch={currentBloch}
-                trajectory={displayTrajectory}
+                trajectory={trajectoryToNow}
+                futureTrajectory={showFuturePath ? displayTrajectory : null}
+                segmentBreaks={segmentBreaks}
                 trajectoryAlt={displayTrajectoryAlt}
                 field={currentField}
                 showEffective={showEffectiveArrow}
@@ -184,7 +305,7 @@ export default function ExperimentStudio() {
           <>
             <span style={{ marginLeft: "8px", display: "inline-flex", alignItems: "center", gap: "7px" }}>
               <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: stageColor(stage.stage) }} />
-              <span style={{ color: C.text, fontSize: "11px" }}>{stage.label}</span>
+              <span style={{ color: C.text, fontSize: "11px" }}>{operationLabel}</span>
             </span>
             <span style={{ color: C.dim, fontFamily: "monospace", fontSize: "11px" }}>
               {result ? `${currentTime.toFixed(3)} s` : "—"}

@@ -15,6 +15,7 @@
 import { useMemo } from "react";
 import { C, PHYS } from "./theme.js";
 import { formatTime } from "./stageModel.js";
+import { pulseAxisLabel } from "./pulseModel.js";
 
 const MIN_FRAC = 0.05; // minimum visual width so tiny items stay clickable
 
@@ -105,7 +106,9 @@ export default function ExperimentTimeline({
                   fontSize: "10px", fontWeight: 600, color: "#eaf2ff",
                   whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                 }}>
-                  {b.index + 1}. {isPulse ? (b.item.pulse_shape === "gaussian" ? "Gauss pulse" : "Pulse") : "Free evo"}
+                  {b.index + 1}. {isPulse
+                    ? `${b.item.pulse_shape === "gaussian" ? "Gauss" : "Pulse"} · ${pulseAxisLabel(b.item.phase ?? 0)}`
+                    : "Free evo"}
                 </span>
                 <span style={{ fontSize: "9px", fontFamily: "monospace", color: "rgba(230,240,255,0.7)" }}>
                   {formatTime(b.duration)}

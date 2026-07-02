@@ -20,6 +20,7 @@ import { FRAMES } from "../visualPhysics/visualizationTypes.js";
 import {
   classifyStage, emphasisForStage, measurementProbabilities, STAGE,
 } from "./stageModel.js";
+import { maxTransverse, driveLevel, detectorLevel, signalPhase } from "./signalModel.js";
 
 const BACKEND_URL   = "http://localhost:8000";
 const FETCH_TIMEOUT = 30000;
@@ -83,6 +84,10 @@ export function useExperiment() {
 
   const [measurement, setMeasurementState] = useState({ enabled: false, axis: "z" });
 
+  // Visualization preferences (Advanced).
+  const [autoCloseup, setAutoCloseup]     = useState(true);  // dolly in during a pulse
+  const [showFuturePath, setShowFuturePath] = useState(false); // faint full-path preview
+
   // ── Run state ────────────────────────────────────────────────────────────
   const [status, setStatus]           = useState("idle"); // idle|loading|ok|error|offline
   const [result, setResult]           = useState(null);
@@ -122,6 +127,22 @@ export function useExperiment() {
     setItems(p => p.map(it => it.id === id ? { ...it, ...patch } : it)), []);
   const removeItem = useCallback((id) =>
     setItems(p => p.length > 1 ? p.filter(it => it.id !== id) : p), []);
+  // Apply a named preset — sets name, initial state, sequence, environment,
+  // measurement (same QuTiP endpoint). Marks the result stale (Play to run).
+  const applyPreset = useCallback((preset) => {
+    if (!preset) return;
+    stopPlayback();
+    setName(preset.name);
+    if (preset.initKey) setInitKey(preset.initKey);
+    setItems(preset.sequence.map(it => ({ ...it, id: uid() })));
+    if (preset.decoherence) setDecoherenceState(prev => ({ ...prev, ...preset.decoherence }));
+    if (preset.measurement) setMeasurementState(prev => ({ ...prev, ...preset.measurement }));
+    setResult(null);
+    setPlayIndex(0);
+    setStatus("idle");
+    setIsStale(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const moveItem = useCallback((id, dir) => setItems(p => {
     const i = p.findIndex(it => it.id === id);
     const j = i + dir;
@@ -287,6 +308,9 @@ export function useExperiment() {
     setPlayIndex(result.trajectory.length - 1);
   }, [result, stopPlayback]);
 
+  // Peak transverse drive over the whole run — normalizes the live pulse field.
+  const maxDrive = useMemo(() => maxTransverse(result?.field_trajectory), [result]);
+
   // ── Derived current-frame values (display only) ──────────────────────────
   const derived = useMemo(() => {
     const nItems = items.length;
@@ -302,7 +326,15 @@ export function useExperiment() {
         stage,
         emphasis:        emphasisForStage(stage.stage),
         displayTrajectory:    null,
+        trajectoryToNow:      null,
+        segmentBreaks:        [],
         displayTrajectoryAlt: null,
+        driveLevel:      0,
+        driveMagnitude:  0,
+        signalMagnitude: 0,
+        signalReal:      0,
+        signalImag:      0,
+        signalPhase:     0,
       };
     }
 
@@ -321,7 +353,13 @@ export function useExperiment() {
       atEnd, measurementEnabled: measurement.enabled, hasResult: true,
     });
 
+    // Live drive envelope + detector signal at the SAME backend index.
+    const sigRe = result.detector_signal_real?.[idx] ?? blochRaw[0];
+    const sigIm = result.detector_signal_imag?.[idx] ?? blochRaw[1];
+    const sigMag = result.detector_signal_magnitude?.[idx] ?? Math.hypot(blochRaw[0], blochRaw[1]);
+
     // Frame transform for the state-space view (declared, magnitude-preserving).
+    // The Bloch vector AND the trajectory use the SAME frame transform.
     const bloch = transformVec(blochRaw, frame, field);
     const dispTraj = frame === FRAMES.EFFECTIVE && field
       ? traj.map(p => toEffectiveFrame(p, field))
@@ -329,6 +367,16 @@ export function useExperiment() {
     const dispTrajAlt = (frame === FRAMES.EFFECTIVE && field && idealResult)
       ? idealResult.trajectory.map(p => toEffectiveFrame(p, field))
       : idealResult?.trajectory ?? null;
+
+    // Show only the trajectory travelled SO FAR (not the whole future path).
+    const trajectoryToNow = dispTraj.slice(0, idx + 1);
+    // Item-boundary markers reached so far (subtle segment breaks).
+    const segmentBreaks = [];
+    if (result.item_index) {
+      for (let i = 1; i <= idx; i++) {
+        if (result.item_index[i] !== result.item_index[i - 1]) segmentBreaks.push(dispTraj[i]);
+      }
+    }
 
     return {
       currentBlochRaw:  blochRaw,
@@ -339,11 +387,20 @@ export function useExperiment() {
       progress,
       stage,
       emphasis:         emphasisForStage(stage.stage),
-      displayTrajectory:    dispTraj,
+      displayTrajectory:    dispTraj,       // full path (frame-transformed)
+      trajectoryToNow,                       // path up to the current playhead
+      segmentBreaks,                         // item-boundary markers reached so far
       displayTrajectoryAlt: dispTrajAlt,
       nItems,
+      // Live pulse field + detector signal (backend-driven, same index)
+      driveMagnitude:   Math.hypot(field?.[0] ?? 0, field?.[1] ?? 0),
+      driveLevel:       driveLevel(field, maxDrive),
+      signalReal:       sigRe,
+      signalImag:       sigIm,
+      signalMagnitude:  detectorLevel(sigMag),
+      signalPhase:      signalPhase(sigRe, sigIm),
     };
-  }, [result, idealResult, playIndex, items, frame, measurement.enabled, initialBloch]);
+  }, [result, idealResult, playIndex, items, frame, measurement.enabled, initialBloch, maxDrive]);
 
   // ── Scale metadata (declared visual scaling) ─────────────────────────────
   const scaleMeta = useMemo(() => {
@@ -362,16 +419,46 @@ export function useExperiment() {
     return measurementProbabilities(derived.currentBlochRaw, measurement.axis);
   }, [measurement.enabled, measurement.axis, derived.currentBlochRaw]);
 
+  // ── Model information (Advanced-only; scientific approximation contract) ──
+  const modelInfo = useMemo(() => {
+    if (!result) return null;
+    const N = result.trajectory.length;
+    const dt = N > 1 ? result.total_duration / (N - 1) : 0;
+    return {
+      solver:      result.solver_info.solver,
+      version:     result.solver_info.version,
+      points:      N,
+      dt,
+      quality,
+      approximations: [
+        "Single spin-½ · representative ensemble",
+        "Spatially uniform B₀",
+        "Rotating frame · carrier folded out (RWA)",
+        decoherence.enabled ? "Markovian Lindblad relaxation (T₁/T₂)" : "Closed system (unitary)",
+        "Detector: normalized transverse signal (|r_⊥| ≤ 1)",
+        "Field lines: finite visual sampling",
+      ],
+      values: {
+        time:     "physical (s)",
+        drive:    "Ω angular-frequency (rad/s); no γ → not tesla",
+        detector: "normalized ensemble signal",
+        bloch:    "exact |r| ≤ 1",
+      },
+    };
+  }, [result, quality, decoherence.enabled]);
+
   return {
     // config
     name, setName,
     initKey, setInitKey, customTheta, setCustomTheta, customPhi, setCustomPhi, initialBloch,
-    items, addPulse, addFree, updateItem, removeItem, moveItem,
+    items, addPulse, addFree, updateItem, removeItem, moveItem, applyPreset,
     quality, setQuality,
     frame, setFrame,
     decoherence, setDecoherence, t2Err,
     showComparison, setShowComparison,
     measurement, setMeasurement,
+    autoCloseup, setAutoCloseup,
+    showFuturePath, setShowFuturePath,
 
     // run
     status, result, idealResult, error, isStale, run,
@@ -381,8 +468,11 @@ export function useExperiment() {
 
     // derived
     ...derived,
+    maxDrive,
     scaleMeta,
     measurementReadout,
+    measurementSample: result?.measurement_sample ?? null,
+    modelInfo,
     STAGE,
   };
 }

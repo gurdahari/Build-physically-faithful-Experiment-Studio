@@ -4,92 +4,170 @@
  * diagnostics charts.  Pure UI; all values come from the useExperiment hook.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { C, PHYS, BTN, BTN_ACTIVE, BTN_SM } from "./theme.js";
 import { newPulse, newFree } from "./useExperiment.js";
+import { pulseAxisName, pulseArea, pulseAngleLabel, axisToPhase } from "./pulseModel.js";
 
-const BTN_SM_ACT = { ...BTN_SM, ...BTN_ACTIVE };
-
-// ── Slider row ────────────────────────────────────────────────────────────────
+// ── Slider row (label · value · full-width control; no horizontal overflow) ───
 export function Slider({ label, value, min, max, step, accentColor, display, onChange }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-      <span style={{ color: C.label, fontSize: "10px", minWidth: "26px", fontFamily: "monospace" }}>{label}</span>
-      <span style={{ color: C.text, fontSize: "10px", minWidth: "66px", fontFamily: "monospace", textAlign: "right" }}>{display}</span>
+    <div style={{ marginBottom: "8px", minWidth: 0 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "2px" }}>
+        <span style={{ color: C.label, fontSize: "10px", fontFamily: "monospace" }}>{label}</span>
+        <span style={{ color: C.text, fontSize: "10px", fontFamily: "monospace" }}>{display}</span>
+      </div>
       <input type="range" min={min} max={max} step={step} value={value}
         onChange={e => onChange(Number(e.target.value))}
-        style={{ flex: 1, accentColor, cursor: "pointer" }} />
+        style={{ width: "100%", accentColor, cursor: "pointer", display: "block" }} />
     </div>
   );
 }
 
-// ── Sequence-item card ────────────────────────────────────────────────────────
-export function ItemCard({ item, index, count, active, selected, onUpdate, onRemove, onMove }) {
+// ── Segmented control (replaces dense button rows) ────────────────────────────
+export function Segmented({ options, value, onChange, size = "md" }) {
+  return (
+    <div style={{
+      display: "flex", background: "rgba(8,12,30,0.7)", borderRadius: "7px",
+      padding: "2px", gap: "2px", minWidth: 0,
+    }}>
+      {options.map(([val, label]) => (
+        <button key={val} onClick={() => onChange(val)} style={{
+          flex: "1 1 0", minWidth: 0, border: "none", borderRadius: "5px", cursor: "pointer",
+          padding: size === "sm" ? "4px 4px" : "6px 6px",
+          fontSize: size === "sm" ? "10px" : "11px",
+          background: value === val ? "rgba(40,60,140,0.9)" : "transparent",
+          color: value === val ? "#ddeeff" : C.label, fontWeight: value === val ? 600 : 400,
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        }}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+function Lite({ children }) {
+  return <div style={{ color: C.label, fontSize: "10px", margin: "6px 0 4px" }}>{children}</div>;
+}
+
+// ── Sequence-item card (collapsible; one summary line when collapsed) ─────────
+export function ItemCard({ item, index, count, active, selected, expanded, onToggle, onUpdate, onRemove, onMove }) {
+  const isPulse = item.type === "pulse";
   const update = patch => onUpdate(item.id, patch);
   const maxSigma = Math.max(0.01, item.duration / 2);
   const effSigma = Math.min(item.sigma ?? item.duration / 6, maxSigma);
-  const isPulse = item.type === "pulse";
+  const axisName = isPulse ? pulseAxisName(item.phase ?? 0) : null;
+
+  const [customMode, setCustomMode] = useState(isPulse && axisName === null);
+  const [showDetuning, setShowDetuning] = useState((item.detuning ?? 0) !== 0);
+  const axisSel = isPulse ? (customMode || axisName === null ? "Custom" : axisName) : null;
+
+  const area = isPulse ? pulseArea(item) : 0;
+  const summary = isPulse
+    ? `${axisSel} · ${(area / Math.PI).toFixed(2)}π · ${item.duration.toFixed(2)}s`
+    : `Ωz ${(item.omega0 / Math.PI).toFixed(2)}π · ${item.duration.toFixed(2)}s`;
 
   const borderColor = selected ? "#dfebff" : active ? PHYS.pulse : C.border;
 
   return (
     <div style={{
-      background: selected ? "rgba(24,40,96,0.6)" : active ? "rgba(20,35,90,0.45)" : "rgba(8,14,38,0.55)",
-      border: `1px solid ${borderColor}`,
-      borderRadius: "8px", padding: "9px 10px", marginBottom: "7px",
-      transition: "all 0.12s",
+      background: selected ? "rgba(24,40,96,0.55)" : active ? "rgba(20,35,90,0.4)" : "rgba(8,14,38,0.5)",
+      border: `1px solid ${borderColor}`, borderRadius: "8px", marginBottom: "7px",
+      overflow: "hidden", transition: "border-color 0.12s",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "7px" }}>
-        <span style={{ color: active ? "#80b8ff" : C.dim, fontSize: "10px", fontFamily: "monospace", minWidth: "16px" }}>
-          {index + 1}
+      {/* Header: collapsed summary; click to expand (one at a time). */}
+      <button onClick={() => onToggle(item.id)} style={{
+        width: "100%", display: "flex", alignItems: "center", gap: "7px", minWidth: 0,
+        padding: "8px 10px", background: expanded ? "rgba(20,30,70,0.28)" : "transparent",
+        border: "none", cursor: "pointer", textAlign: "left",
+      }}>
+        <span style={{ color: active ? "#80b8ff" : C.dim, fontSize: "10px", fontFamily: "monospace", minWidth: "12px" }}>{index + 1}</span>
+        <span style={{ fontSize: "11px", color: expanded ? C.bright : C.text, fontWeight: 600, flexShrink: 0 }}>
+          {isPulse ? (item.pulse_shape === "gaussian" ? "Gauss" : "Pulse") : "Free"}
         </span>
-        {["pulse", "free"].map(t => (
-          <button key={t} onClick={() => {
-            if (item.type !== t) onUpdate(item.id, { ...(t === "pulse" ? newPulse() : newFree()), id: item.id });
-          }} style={item.type === t ? BTN_SM_ACT : BTN_SM}>{t}</button>
-        ))}
-        {isPulse && (
-          <>
-            <span style={{ color: C.dim, fontSize: "9px" }}>·</span>
-            {["square", "gaussian"].map(s => (
-              <button key={s} onClick={() => update({ pulse_shape: s })}
-                style={item.pulse_shape === s ? BTN_SM_ACT : BTN_SM}>
-                {s === "square" ? "sq" : "gauss"}
-              </button>
-            ))}
-          </>
-        )}
+        {isPulse && <span style={{ fontSize: "10px", color: PHYS.b1, fontFamily: "monospace", flexShrink: 0 }}>{axisSel}</span>}
         <div style={{ flex: 1 }} />
-        <button onClick={() => onMove(item.id, -1)} disabled={index === 0}
-          style={{ ...BTN_SM, padding: "2px 6px", opacity: index === 0 ? 0.35 : 1 }}>↑</button>
-        <button onClick={() => onMove(item.id, 1)} disabled={index === count - 1}
-          style={{ ...BTN_SM, padding: "2px 6px", opacity: index === count - 1 ? 0.35 : 1 }}>↓</button>
-        <button onClick={() => onRemove(item.id)}
-          style={{ ...BTN_SM, padding: "2px 7px", color: "#c07070", borderColor: "rgba(120,60,60,0.4)" }}>×</button>
-      </div>
+        <span style={{ fontSize: "9px", color: C.dim, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary}</span>
+        <span style={{ color: C.dim, fontSize: "10px", flexShrink: 0 }}>{expanded ? "▾" : "▸"}</span>
+      </button>
 
-      {isPulse ? (
-        <>
-          <Slider label="Ω₀" value={item.amplitude} min={0} max={4 * Math.PI} step={0.05} accentColor={PHYS.b1}
-            display={`${(item.amplitude / Math.PI).toFixed(2)}π r/s`} onChange={v => update({ amplitude: v })} />
-          <Slider label="φ" value={item.phase} min={0} max={2 * Math.PI} step={0.01} accentColor={PHYS.detuning}
-            display={`${(item.phase / Math.PI).toFixed(2)}π`} onChange={v => update({ phase: v })} />
-          <Slider label="Δ" value={item.detuning} min={-3 * Math.PI} max={3 * Math.PI} step={0.05} accentColor={PHYS.omegaEff}
-            display={`${(item.detuning / Math.PI).toFixed(2)}π r/s`} onChange={v => update({ detuning: v })} />
-          <Slider label="T" value={item.duration} min={0.05} max={5} step={0.05} accentColor={PHYS.b0}
-            display={`${item.duration.toFixed(2)} s`} onChange={v => update({ duration: v })} />
-          {item.pulse_shape === "gaussian" && (
-            <Slider label="σ" value={effSigma} min={0.01} max={maxSigma} step={0.01} accentColor="#e0a040"
-              display={`${effSigma.toFixed(2)} s`} onChange={v => update({ sigma: v })} />
+      {expanded && (
+        <div data-testid="item-body" style={{ padding: "2px 10px 10px", minWidth: 0 }}>
+          <div style={{ display: "flex", gap: "6px", marginBottom: "6px", minWidth: 0 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Segmented size="sm" options={[["pulse", "Pulse"], ["free", "Free"]]} value={item.type}
+                onChange={t => { if (item.type !== t) onUpdate(item.id, { ...(t === "pulse" ? newPulse() : newFree()), id: item.id }); }} />
+            </div>
+            {isPulse && (
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Segmented size="sm" options={[["square", "Square"], ["gaussian", "Gauss"]]} value={item.pulse_shape}
+                  onChange={s => update({ pulse_shape: s })} />
+              </div>
+            )}
+          </div>
+
+          {isPulse ? (
+            <>
+              <Lite>Axis</Lite>
+              <Segmented size="sm"
+                options={[["X", "X"], ["Y", "Y"], ["−X", "−X"], ["−Y", "−Y"], ["Custom", "Custom"]]}
+                value={axisSel}
+                onChange={a => {
+                  if (a === "Custom") { setCustomMode(true); }
+                  else { setCustomMode(false); update({ phase: axisToPhase(a) }); }
+                }} />
+              {axisSel === "Custom" && (
+                <div style={{ marginTop: "6px" }}>
+                  <Slider label="φ" value={item.phase} min={0} max={2 * Math.PI} step={0.01} accentColor={PHYS.detuning}
+                    display={`${(item.phase / Math.PI).toFixed(2)}π`} onChange={v => update({ phase: v })} />
+                  <div style={{ fontSize: "9px", color: C.dim, fontFamily: "monospace" }}>
+                    n̂ = ({Math.cos(item.phase).toFixed(2)}, {Math.sin(item.phase).toFixed(2)}, 0)
+                  </div>
+                </div>
+              )}
+
+              <div style={{ height: "4px" }} />
+              <Slider label="Ω rad/s" value={item.amplitude} min={0} max={4 * Math.PI} step={0.05} accentColor={PHYS.b1}
+                display={`${(item.amplitude / Math.PI).toFixed(2)}π`} onChange={v => update({ amplitude: v })} />
+              <Slider label="T s" value={item.duration} min={0.05} max={5} step={0.05} accentColor={PHYS.b0}
+                display={`${item.duration.toFixed(2)}`} onChange={v => update({ duration: v })} />
+              {item.pulse_shape === "gaussian" && (
+                <Slider label="σ s" value={effSigma} min={0.01} max={maxSigma} step={0.01} accentColor="#e0a040"
+                  display={`${effSigma.toFixed(2)}`} onChange={v => update({ sigma: v })} />
+              )}
+
+              <div style={{ fontSize: "10px", color: PHYS.omegaEff, fontFamily: "monospace", margin: "4px 0 2px" }}>
+                {pulseAngleLabel(item)}
+              </div>
+
+              <button onClick={() => setShowDetuning(s => !s)} style={{
+                background: "none", border: "none", color: C.dim, fontSize: "10px", cursor: "pointer", padding: "3px 0",
+              }}>
+                {showDetuning ? "▾" : "▸"} Detuning{(item.detuning ?? 0) !== 0 ? ` · Δ = ${(item.detuning / Math.PI).toFixed(2)}π` : ""}
+              </button>
+              {showDetuning && (
+                <Slider label="Δ rad/s" value={item.detuning} min={-3 * Math.PI} max={3 * Math.PI} step={0.05} accentColor={PHYS.omegaEff}
+                  display={`${(item.detuning / Math.PI).toFixed(2)}π`} onChange={v => update({ detuning: v })} />
+              )}
+            </>
+          ) : (
+            <>
+              <Slider label="Ωz rad/s" value={item.omega0} min={-2 * Math.PI} max={2 * Math.PI} step={0.05} accentColor={PHYS.free}
+                display={`${(item.omega0 / Math.PI).toFixed(2)}π`} onChange={v => update({ omega0: v })} />
+              <Slider label="T s" value={item.duration} min={0.05} max={5} step={0.05} accentColor={PHYS.b0}
+                display={`${item.duration.toFixed(2)}`} onChange={v => update({ duration: v })} />
+            </>
           )}
-        </>
-      ) : (
-        <>
-          <Slider label="ω₀" value={item.omega0} min={-2 * Math.PI} max={2 * Math.PI} step={0.05} accentColor={PHYS.free}
-            display={`${(item.omega0 / Math.PI).toFixed(2)}π r/s`} onChange={v => update({ omega0: v })} />
-          <Slider label="T" value={item.duration} min={0.05} max={5} step={0.05} accentColor={PHYS.b0}
-            display={`${item.duration.toFixed(2)} s`} onChange={v => update({ duration: v })} />
-        </>
+
+          <div style={{ display: "flex", gap: "6px", marginTop: "8px" }}>
+            <button onClick={() => onMove(item.id, -1)} disabled={index === 0}
+              style={{ ...BTN_SM, padding: "3px 8px", opacity: index === 0 ? 0.35 : 1 }}>↑</button>
+            <button onClick={() => onMove(item.id, 1)} disabled={index === count - 1}
+              style={{ ...BTN_SM, padding: "3px 8px", opacity: index === count - 1 ? 0.35 : 1 }}>↓</button>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => onRemove(item.id)} disabled={count <= 1}
+              style={{ ...BTN_SM, color: "#c07070", borderColor: "rgba(120,60,60,0.4)", opacity: count <= 1 ? 0.4 : 1 }}>Remove</button>
+          </div>
+        </div>
       )}
     </div>
   );

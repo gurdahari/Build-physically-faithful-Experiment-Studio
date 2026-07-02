@@ -41,9 +41,14 @@ export const PHYS = {
 };
 
 // ── Button styles ────────────────────────────────────────────────────────────
+// Border uses the longhand (width/style/color) rather than the `border`
+// shorthand so that derived styles can override only `borderColor` without
+// React warning about mixing shorthand and non-shorthand properties.
 export const BTN = {
   background:   "rgba(20,28,55,0.88)",
-  border:       "1px solid rgba(90,130,200,0.40)",
+  borderWidth:  "1px",
+  borderStyle:  "solid",
+  borderColor:  "rgba(90,130,200,0.40)",
   borderRadius: "7px",
   color:        C.text,
   padding:      "7px 14px",
@@ -65,7 +70,7 @@ export const BTN_ACTIVE = {
 export const BTN_PRIMARY = {
   ...BTN,
   background:   "rgba(10,60,40,0.85)",
-  border:       "1px solid rgba(60,180,90,0.50)",
+  borderColor:  "rgba(60,180,90,0.50)",
   color:        "#7fe6a0",
   fontWeight:   "600",
   padding:      "8px 18px",

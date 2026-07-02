@@ -332,3 +332,9 @@ class ExperimentResponse(BaseModel):
     trace_check: list[float]            # Tr(ρ) ≈ 1 throughout (sanity)
     # ── Final density-matrix diagnostics ───────────────────────────────────
     final_diagnostics: dict             # {trace, purity, bloch_norm, eigenvalues}
+    # ── Detector signal (continuous acquisition; same indexing as trajectory) ─
+    detector_signal_real: list[float]       # <σx>(t) = trajectory_x (quadrature I)
+    detector_signal_imag: list[float]       # <σy>(t) = trajectory_y (quadrature Q)
+    detector_signal_magnitude: list[float]  # √(I²+Q²) — transverse magnetization
+    # ── Projective measurement (Z basis) — backend-sampled outcome ──────────
+    measurement_sample: dict                # {basis, p0, p1, outcome, label}

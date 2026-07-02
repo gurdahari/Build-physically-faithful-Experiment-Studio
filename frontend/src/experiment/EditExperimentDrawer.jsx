@@ -17,6 +17,8 @@ import { C, PHYS, BTN, BTN_ACTIVE, BTN_SM } from "./theme.js";
 import { INIT_PRESETS } from "./useExperiment.js";
 import { ItemCard, DecoherenceControls, DiagnosticsCharts, Slider } from "./editorParts.jsx";
 import { FRAMES } from "../visualPhysics/visualizationTypes.js";
+import { auditTrajectory } from "./trajectoryAudit.js";
+import { PRESET_LIST } from "./presets.js";
 
 const TWO_PI = 2 * Math.PI;
 const GROUPS = ["system", "fields", "environment", "measurement"];
@@ -62,16 +64,19 @@ export default function EditExperimentDrawer({ exp, selection, onClose, onSelect
   const {
     name, setName,
     initKey, setInitKey, customTheta, setCustomTheta, customPhi, setCustomPhi, initialBloch,
-    items, addPulse, addFree, updateItem, removeItem, moveItem, currentItemIndex,
+    items, addPulse, addFree, updateItem, removeItem, moveItem, applyPreset, currentItemIndex,
     quality, setQuality, frame, setFrame,
     decoherence, setDecoherence, showComparison, setShowComparison,
     measurement, setMeasurement, measurementReadout,
+    autoCloseup, setAutoCloseup, showFuturePath, setShowFuturePath, modelInfo,
     result, idealResult, status,
   } = exp;
 
   const selectedGroup = selection ? SELECTION_TO_GROUP[selection.kind] ?? null : null;
   const [open, setOpen] = useState({ system: false, fields: true, environment: false, measurement: false });
   const [advanced, setAdvanced] = useState(false);
+  const [expandedItemId, setExpandedItemId] = useState(items[0]?.id ?? null);
+  const [auditResult, setAuditResult] = useState(null);
 
   // Contextual: expand the group that matches the current selection.
   useEffect(() => {
@@ -80,15 +85,18 @@ export default function EditExperimentDrawer({ exp, selection, onClose, onSelect
       const next = {}; GROUPS.forEach(g => { next[g] = g === selectedGroup; });
       return next;
     });
+    if (selection?.kind === "item") setExpandedItemId(selection.itemId);
   }, [selection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = (id) => setOpen(prev => ({ ...prev, [id]: !prev[id] }));
   const selectedItemId = selection?.kind === "item" ? selection.itemId : null;
+  // One card expands at a time; fall back to the first item if the id is stale.
+  const expandedId = items.some(i => i.id === expandedItemId) ? expandedItemId : items[0]?.id;
 
   return (
-    <div style={{
-      width: "340px", flexShrink: 0, height: "100%",
-      display: "flex", flexDirection: "column",
+    <div data-testid="edit-drawer" style={{
+      width: "min(360px, 90vw)", flexShrink: 0, height: "100%",
+      display: "flex", flexDirection: "column", overflow: "hidden",
       background: C.panel, borderLeft: `1px solid ${C.border}`, boxSizing: "border-box",
     }}>
       {/* Header */}
@@ -100,7 +108,7 @@ export default function EditExperimentDrawer({ exp, selection, onClose, onSelect
         <button onClick={onClose} title="Close editor" style={{ ...BTN_SM, padding: "4px 9px" }}>✕</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+      <div data-testid="drawer-body" style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minWidth: 0 }}>
         {/* Experiment name */}
         <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
           <FieldLabel>Experiment name</FieldLabel>
@@ -110,6 +118,14 @@ export default function EditExperimentDrawer({ exp, selection, onClose, onSelect
               background: "rgba(8,14,38,0.7)", border: `1px solid ${C.border}`,
               borderRadius: "6px", color: C.bright, padding: "7px 10px", fontSize: "13px",
             }} />
+
+          <FieldLabel>Preset</FieldLabel>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+            {PRESET_LIST.map(p => (
+              <button key={p.key} onClick={() => { applyPreset(p); setExpandedItemId(null); setOpen(o => ({ ...o, fields: true })); }}
+                title={p.description} style={BTN_SM}>{p.name}</button>
+            ))}
+          </div>
         </div>
 
         {/* ── System (initial state + B₀) ─────────────────────────────────── */}
@@ -145,12 +161,14 @@ export default function EditExperimentDrawer({ exp, selection, onClose, onSelect
               key={it.id} item={it} index={idx} count={items.length}
               active={result != null && idx === currentItemIndex}
               selected={it.id === selectedItemId}
+              expanded={it.id === expandedId}
+              onToggle={(id) => setExpandedItemId(cur => (cur === id ? null : id))}
               onUpdate={updateItem} onRemove={removeItem} onMove={moveItem}
             />
           ))}
           <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
-            <button onClick={addPulse} style={BTN}>+ Pulse</button>
-            <button onClick={addFree} style={BTN}>+ Free evolution</button>
+            <button onClick={() => { addPulse(); }} style={BTN}>+ Pulse</button>
+            <button onClick={() => { addFree(); }} style={BTN}>+ Free</button>
           </div>
         </Group>
 
@@ -226,6 +244,57 @@ export default function EditExperimentDrawer({ exp, selection, onClose, onSelect
                   <button key={f} onClick={() => setFrame(f)} style={f === frame ? BTN_ACTIVE : BTN_SM}>{l}</button>
                 ))}
               </div>
+
+              <FieldLabel>Visualization</FieldLabel>
+              <button onClick={() => setAutoCloseup(!autoCloseup)}
+                style={{ ...(autoCloseup ? BTN_ACTIVE : BTN_SM), marginBottom: "6px", width: "100%" }}>
+                {autoCloseup ? "◉ Auto close-up during pulse" : "○ Auto close-up during pulse"}
+              </button>
+              <button onClick={() => setShowFuturePath(!showFuturePath)}
+                style={{ ...(showFuturePath ? BTN_ACTIVE : BTN_SM), marginBottom: "12px", width: "100%" }}>
+                {showFuturePath ? "◉ Faint future-path preview" : "○ Faint future-path preview"}
+              </button>
+
+              {result && (
+                <div style={{ marginBottom: "12px" }}>
+                  <FieldLabel>Trajectory audit (dev)</FieldLabel>
+                  <button onClick={() => setAuditResult(auditTrajectory(result, { decoherence }))} style={BTN_SM}>Run audit</button>
+                  {auditResult && (
+                    <div style={{ marginTop: "6px", fontFamily: "monospace", fontSize: "9px",
+                      color: auditResult.ok ? "#8fe0a8" : C.danger }}>
+                      {auditResult.ok
+                        ? "✓ all invariants hold"
+                        : auditResult.issues.map((s, i) => <div key={i}>⚠ {s}</div>)}
+                      <div style={{ color: C.dim }}>
+                        pts {auditResult.stats.points} · |r|∈[{auditResult.stats.minNorm}, {auditResult.stats.maxNorm}] · jump {auditResult.stats.maxJump}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {modelInfo && (
+                <div style={{ marginBottom: "12px" }}>
+                  <FieldLabel>Model information</FieldLabel>
+                  <div style={{
+                    background: "rgba(6,12,30,0.6)", border: `1px solid ${C.border}`, borderRadius: "8px",
+                    padding: "9px 11px", fontFamily: "monospace", fontSize: "9.5px", color: C.text, lineHeight: "1.7",
+                  }}>
+                    <div>solver: {modelInfo.solver} {modelInfo.version}</div>
+                    <div>time res: dt = {modelInfo.dt.toExponential(2)} s · {modelInfo.points} pts</div>
+                    <div>quality: {modelInfo.quality}</div>
+                    <div style={{ color: C.dim, marginTop: "4px" }}>approximations:</div>
+                    {modelInfo.approximations.map((a, i) => (
+                      <div key={i} style={{ color: C.label, paddingLeft: "6px" }}>· {a}</div>
+                    ))}
+                    <div style={{ color: C.dim, marginTop: "4px" }}>values:</div>
+                    <div style={{ color: C.label, paddingLeft: "6px" }}>time {modelInfo.values.time}</div>
+                    <div style={{ color: C.label, paddingLeft: "6px" }}>drive {modelInfo.values.drive}</div>
+                    <div style={{ color: C.label, paddingLeft: "6px" }}>detector {modelInfo.values.detector}</div>
+                    <div style={{ color: C.label, paddingLeft: "6px" }}>bloch {modelInfo.values.bloch}</div>
+                  </div>
+                </div>
+              )}
 
               {result && (
                 <>
