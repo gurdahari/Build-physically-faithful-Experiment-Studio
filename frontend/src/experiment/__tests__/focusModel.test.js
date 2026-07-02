@@ -206,17 +206,17 @@ describe("focus wiring guards", () => {
     expect(/focusedObject \? \(/.test(src)).toBe(true);
   });
 
-  it("Escape and empty-space and Back all return to the default framing", () => {
+  it("Escape and empty-space and Back all return the camera framing", () => {
     const src = srcOf("ExperimentStudio.jsx");
-    expect(/e\.key === "Escape"/.test(src)).toBe(true);   // keyboard
-    expect(/onBack=\{clearFocus\}/.test(src)).toBe(true); // Back control
-    expect(/clearFocus/.test(src)).toBe(true);            // empty-space via selectObject(null)
+    expect(/e\.key === "Escape"/.test(src)).toBe(true);   // keyboard → goBack
+    expect(/onBack=\{goBack\}/.test(src)).toBe(true);     // Back control → goBack
+    expect(/clearCameraFocus/.test(src)).toBe(true);      // empty-space / final exit
   });
 
   it("focusing does not pause playback (no pause call in the focus path)", () => {
     const src = srcOf("ExperimentStudio.jsx");
-    // selectObject only sets selection/focus; it must not call pause().
-    const selectObjectBody = src.slice(src.indexOf("const selectObject"), src.indexOf("const selectItem"));
+    // selectObject only sets selection/focus/nav; it must not call pause().
+    const selectObjectBody = src.slice(src.indexOf("const selectObject"), src.indexOf("const selectResolution"));
     expect(/pause\(/.test(selectObjectBody)).toBe(false);
   });
 

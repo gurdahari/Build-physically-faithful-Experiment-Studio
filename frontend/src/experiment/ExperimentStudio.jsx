@@ -12,7 +12,7 @@
  * the same backend playhead index — so they stay synchronized.
  */
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useReducer } from "react";
 import { useExperiment } from "./useExperiment.js";
 import PhysicalLabScene from "./PhysicalLabScene.jsx";
 import StateSphere from "./StateSphere.jsx";
@@ -24,6 +24,9 @@ import { hypot3, MEASURE_AXES, physicalCaption, effectiveFieldMagnitude } from "
 import { classifyPulseOperation, isRfActive, pulseTypeLabel, pulseAngleLabel, pulseAxisName, pulseAxisLabel, driveFieldLabel, OP } from "./pulseModel.js";
 import { focusTitle, focusCardFields, nextFocus } from "./focusModel.js";
 import FocusCard from "./FocusCard.jsx";
+import HydrogenInspector from "./HydrogenInspector.jsx";
+import { navReducer, initialNav, NAV_LEVEL, showsHydrogenInspector } from "../domain/hydrogenNav.js";
+import { getContractForResolution, isActive } from "../domain/hydrogen.js";
 import { FRAMES } from "../visualPhysics/visualizationTypes.js";
 import { C, PHYS, BTN, BTN_ACTIVE, BTN_PRIMARY, BTN_ICON } from "./theme.js";
 
@@ -47,25 +50,62 @@ export default function ExperimentStudio() {
   const [showMath, setShowMath]     = useState(false);
   const [focus, setFocus]           = useState(false);   // full-screen focus mode
   const [selection, setSelection]   = useState(null);    // { kind, itemId? }
-  const [focusedObject, setFocusedObject] = useState(null); // object-focused inspection
+  const [focusedObject, setFocusedObject] = useState(null); // camera-focused object
   const [focusLevel, setFocusLevel] = useState(1);          // 1 = close-up, 2 = macro
+  // Semantic model-navigation state — kept SEPARATE from camera/focus state.
+  const [nav, dispatchNav] = useReducer(navReducer, initialNav);
+  const [transition, setTransition] = useState(null);       // model-change message (transient)
 
-  // Return to the default lab framing (empty-space click, Back control, Escape).
-  const clearFocus = useCallback(() => {
+  const clearCameraFocus = useCallback(() => {
     setFocusedObject(null); setFocusLevel(1); setSelection(null);
   }, []);
 
-  // Clicking a lab object focuses the camera on it and records the selection
-  // (so an open editor jumps to the right group). It does NOT force a panel open.
-  // First click → Close-up; second click on the same object → Macro; a different
-  // object → that object's Close-up.
+  // Clicking a lab object. The SAMPLE drives the Hydrogen navigation hierarchy:
+  // first click → Sample Close-up; clicking the focused sample again → Hydrogen
+  // Entity inspection (the camera stays at the sample close-up). Other objects
+  // use the existing Close-up → Macro camera focus and leave the Hydrogen path.
   const selectObject = useCallback((id) => {
-    if (id == null) { clearFocus(); return; }
+    if (id == null) { dispatchNav({ type: "EXIT" }); clearCameraFocus(); return; }
+    if (id === "sample") {
+      dispatchNav({ type: "FOCUS_SAMPLE" });   // LAB→SAMPLE, then SAMPLE→HYDROGEN
+      setSelection({ kind: "sample" });
+      setFocusedObject("sample");
+      setFocusLevel(1);                          // sample stays at close-up (no macro)
+      return;
+    }
+    dispatchNav({ type: "EXIT" });              // leave the Hydrogen path
     const next = nextFocus({ object: focusedObject, level: focusLevel }, id);
     setSelection({ kind: id });
     setFocusedObject(next.object);
     setFocusLevel(next.level);
-  }, [clearFocus, focusedObject, focusLevel]);
+  }, [clearCameraFocus, focusedObject, focusLevel]);
+
+  // Select a resolution inside the Hydrogen inspector; show a compact,
+  // non-blocking model-transition message. Does NOT touch experiment state.
+  const selectResolution = useCallback((resolutionId) => {
+    const fromName = nav.resolutionId
+      ? getContractForResolution(nav.resolutionId)?.modelName
+      : "Laboratory apparatus model";
+    const toName = getContractForResolution(resolutionId)?.modelName ?? resolutionId;
+    dispatchNav({ type: "SELECT_RESOLUTION", resolutionId });
+    setTransition({
+      from: fromName, to: toName,
+      status: isActive(resolutionId) ? null : "Solver not yet implemented",
+    });
+  }, [nav.resolutionId]);
+
+  // Back / Escape: move outward one semantic level along the Hydrogen path;
+  // otherwise release camera focus. Returning to the lab preserves all state.
+  const goBack = useCallback(() => {
+    if (nav.level !== NAV_LEVEL.LAB) {
+      const next = navReducer(nav, { type: "BACK" });
+      dispatchNav({ type: "BACK" });
+      if (next.level === NAV_LEVEL.LAB) clearCameraFocus();
+    } else if (focusedObject) {
+      clearCameraFocus();
+    }
+  }, [nav, focusedObject, clearCameraFocus]);
+
   const selectItem = useCallback((itemId) => {
     setSelection({ kind: "item", itemId });
     setEditorOpen(true);
@@ -75,12 +115,19 @@ export default function ExperimentStudio() {
     setEditorOpen(true);
   }, []);
 
-  // Escape exits object focus (keyboard accessibility).
+  // Escape moves outward one semantic level (keyboard accessibility).
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") clearFocus(); };
+    const onKey = (e) => { if (e.key === "Escape") goBack(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [clearFocus]);
+  }, [goBack]);
+
+  // Auto-dismiss the transient model-transition message.
+  useEffect(() => {
+    if (!transition) return;
+    const t = setTimeout(() => setTransition(null), 2800);
+    return () => clearTimeout(t);
+  }, [transition]);
 
   const {
     playing, status, isStale, result,
@@ -228,6 +275,28 @@ export default function ExperimentStudio() {
               ⚠ Stale result — press Re-run
             </div>
           )}
+          {/* Compact, non-blocking model-transition message (changing resolution). */}
+          {transition && (
+            <div data-testid="model-transition" style={{
+              position: "absolute", top: "44px", left: "50%", transform: "translateX(-50%)", zIndex: 26,
+              background: "rgba(8,14,34,0.95)", border: "1px solid rgba(120,160,230,0.4)", borderRadius: "10px",
+              padding: "8px 14px", userSelect: "none", pointerEvents: "none", textAlign: "center",
+              boxShadow: "0 6px 20px rgba(0,0,0,0.5)",
+            }}>
+              <div style={{ color: "rgba(150,180,220,0.7)", fontSize: "8px", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                Changing physical resolution
+              </div>
+              <div style={{ color: C.dim, fontSize: "10px", marginTop: "3px" }}>
+                From: <span style={{ color: C.text }}>{transition.from}</span>
+              </div>
+              <div style={{ color: C.dim, fontSize: "10px" }}>
+                To: <span style={{ color: "#9fd0ff" }}>{transition.to}</span>
+              </div>
+              {transition.status && (
+                <div style={{ color: C.warn, fontSize: "9px", marginTop: "2px" }}>Status: {transition.status}</div>
+              )}
+            </div>
+          )}
           {/* Physical lab (always) */}
           <div style={{ flex: showMath ? "1 1 50%" : "1 1 100%", minWidth: 0, position: "relative" }}>
             <PhysicalLabScene
@@ -248,15 +317,19 @@ export default function ExperimentStudio() {
               selected={labSelected}
               onSelect={selectObject}
               caption={caption}
-              hud={focusedObject ? (
-                <FocusCard
-                  objectId={focusedObject}
-                  title={focusTitle(focusedObject)}
-                  fields={focusFields}
-                  level={focusLevel}
-                  onBack={clearFocus}
-                />
-              ) : null}
+              hud={
+                showsHydrogenInspector(nav) ? (
+                  <HydrogenInspector nav={nav} onSelectResolution={selectResolution} onBack={goBack} />
+                ) : focusedObject ? (
+                  <FocusCard
+                    objectId={focusedObject}
+                    title={focusTitle(focusedObject)}
+                    fields={focusFields}
+                    level={focusLevel}
+                    onBack={goBack}
+                  />
+                ) : null
+              }
             />
           </div>
 
