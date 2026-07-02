@@ -120,11 +120,18 @@ function ResolutionView({ resolutionId, onBack }) {
 
       {placeholder ? (
         <div data-testid="hydrogen-placeholder">
-          <div style={{ color: C.warn, fontSize: "10px", fontWeight: 600, marginBottom: "4px" }}>
-            Not yet implemented
-          </div>
+          {/* Honest heading: distinguish "solver available (no visuals yet)" from "not implemented". */}
+          {(/^none/i.test(contract.solver)) ? (
+            <div style={{ color: C.warn, fontSize: "10px", fontWeight: 600, marginBottom: "4px" }}>
+              Not yet implemented
+            </div>
+          ) : (
+            <div data-testid="hydrogen-solver-available" style={{ color: "#8fe0a8", fontSize: "10px", fontWeight: 600, marginBottom: "4px" }}>
+              Analytic solver available · visualization in Milestone 3
+            </div>
+          )}
           <div style={{ color: C.text, fontSize: "9px", lineHeight: "1.6", marginBottom: "6px" }}>
-            Planned model: {contract.theory}.
+            {(/^none/i.test(contract.solver)) ? "Planned model: " : "Model: "}{contract.theory}.
           </div>
           <Row label="Solver / data" value={contract.solver} valueColor={C.warn} />
           <div style={{ marginTop: "6px" }}>

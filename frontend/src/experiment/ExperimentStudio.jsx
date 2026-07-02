@@ -86,12 +86,17 @@ export default function ExperimentStudio() {
     const fromName = nav.resolutionId
       ? getContractForResolution(nav.resolutionId)?.modelName
       : "Laboratory apparatus model";
-    const toName = getContractForResolution(resolutionId)?.modelName ?? resolutionId;
+    const toContract = getContractForResolution(resolutionId);
+    const toName = toContract?.modelName ?? resolutionId;
+    // Status reflects the contract, not just the (visual) resolution status:
+    // an analytic solver may exist even while the visualization is still pending.
+    const solverNone = /^none/i.test(toContract?.solver ?? "none");
+    const status = isActive(resolutionId)
+      ? null
+      : solverNone ? "Solver not yet implemented"
+      : "Analytic solver available (visualization pending)";
     dispatchNav({ type: "SELECT_RESOLUTION", resolutionId });
-    setTransition({
-      from: fromName, to: toName,
-      status: isActive(resolutionId) ? null : "Solver not yet implemented",
-    });
+    setTransition({ from: fromName, to: toName, status });
   }, [nav.resolutionId]);
 
   // Back / Escape: move outward one semantic level along the Hydrogen path;

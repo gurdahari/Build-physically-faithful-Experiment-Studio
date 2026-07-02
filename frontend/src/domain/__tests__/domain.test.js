@@ -79,12 +79,16 @@ describe("Proton Spin contract", () => {
 
 describe("Atomic contract", () => {
   const c = getContract(CONTRACT.ATOMIC);
-  it("is marked not implemented with the planned model stated", () => {
-    expect(c.solver).toMatch(/not yet implemented/i);
+  it("declares the analytic solver available but no rendering yet (Milestone 2)", () => {
+    expect(c.solver).toMatch(/analytic backend solver/i);
+    expect(c.solver).not.toMatch(/QuTiP is used/i);
     expect(c.theory).toMatch(/nonrelativistic electron.?proton Coulomb/i);
     const lim = c.limitations.join(" ");
-    expect(lim).toMatch(/No atomic solver is active yet/i);
-    expect(lim).toMatch(/No authoritative orbital is rendered yet/i);
+    expect(lim).toMatch(/Atomic analytic solver available/i);
+    expect(lim).toMatch(/Milestone 3/i);
+    expect(lim).toMatch(/No authoritative orbital rendering is active yet/i);
+    // The resolution stays a placeholder (no complete visual experience yet).
+    expect(getResolution(RES.ATOMIC).status).toBe(RESOLUTION_STATUS.PLACEHOLDER);
   });
 });
 

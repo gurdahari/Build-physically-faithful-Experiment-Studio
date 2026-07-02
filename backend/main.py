@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from models import (
@@ -13,6 +13,8 @@ from physics.hamiltonian import simulate_hamiltonian
 from physics.pulse import simulate_time_dependent_pulse
 from physics.qutip_pulse import simulate_qutip_pulse, compare_solvers
 from physics.experiment import simulate_experiment
+from hydrogen import service as hydrogen_service
+from hydrogen.schemas import EvaluateRequest as HydrogenEvaluateRequest
 
 app = FastAPI(title="Quantum Experiment Studio API", version="0.1.0")
 
@@ -21,6 +23,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",  # vite dev
         "http://localhost:5174",  # vite dev (fallback when 5173 is busy)
+        "http://localhost:5175",  # vite dev (fallback when 5173/5174 are busy)
         "http://localhost:5200",  # vite preview
         "http://localhost:4173",  # vite preview alt
     ],
@@ -186,3 +189,26 @@ def simulate_experiment_endpoint(body: ExperimentRequest) -> ExperimentResponse:
         equilibrium_z=body.equilibrium_z,
     )
     return ExperimentResponse(**result)
+
+
+# ── Hydrogen atomic (nonrelativistic analytic solver, Milestone 2) ────────────
+# Authoritative closed-form electron–proton Coulomb model. QuTiP is NOT used here
+# and the Proton Spin experiment is unaffected. Atomic evaluation runs ONLY when
+# explicitly requested (POST); entering the Hydrogen inspector does not call it.
+
+@app.get("/hydrogen/atomic/model")
+def hydrogen_atomic_model():
+    """Active atomic-model metadata: constants, basis, included/omitted physics,
+    units, conventions, and limitations."""
+    return hydrogen_service.model_metadata()
+
+
+@app.post("/hydrogen/atomic/evaluate")
+def hydrogen_atomic_evaluate(body: HydrogenEvaluateRequest):
+    """Evaluate an atomic state: normalized metadata, energies/observables,
+    sampled fields, and normalization diagnostics. Returns clear validation
+    errors (422) instead of tracebacks."""
+    try:
+        return hydrogen_service.evaluate(body)
+    except (ValueError, KeyError, NotImplementedError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
