@@ -26,7 +26,9 @@ import { focusTitle, focusCardFields, nextFocus } from "./focusModel.js";
 import FocusCard from "./FocusCard.jsx";
 import HydrogenInspector from "./HydrogenInspector.jsx";
 import AtomicHydrogenScene from "./AtomicHydrogenScene.jsx";
+import PrecisionOverlay from "./PrecisionOverlay.jsx";
 import { useAtomicHydrogen } from "./useAtomicHydrogen.js";
+import { usePrecision } from "./usePrecision.js";
 import { navReducer, initialNav, NAV_LEVEL, showsHydrogenInspector } from "../domain/hydrogenNav.js";
 import { getContractForResolution, isActive, RES } from "../domain/hydrogen.js";
 import { FRAMES } from "../visualPhysics/visualizationTypes.js";
@@ -58,11 +60,27 @@ export default function ExperimentStudio() {
   const [nav, dispatchNav] = useReducer(navReducer, initialNav);
   const [transition, setTransition] = useState(null);       // model-change message (transient)
 
-  // Atomic Hydrogen visualization is active only at the Atomic resolution. Its
-  // hook (requests/cache/playback) is entirely separate from the Proton Spin
-  // experiment (useExperiment) and issues NO requests while inactive.
+  // Atomic Hydrogen visualization is active at the Atomic resolution AND serves as
+  // spatial context at the Precision resolution. Its hook (requests/cache/playback)
+  // is entirely separate from the Proton Spin experiment and issues NO requests
+  // while inactive.
   const atomicActive = nav.level === NAV_LEVEL.RESOLUTION && nav.resolutionId === RES.ATOMIC;
-  const atomic = useAtomicHydrogen(atomicActive);
+  const precisionActive = nav.level === NAV_LEVEL.RESOLUTION && nav.resolutionId === RES.PRECISION;
+  const atomic = useAtomicHydrogen(atomicActive || precisionActive);
+  // Precision level/transition physics — separate hook; toggling corrections or
+  // sweeping the field never re-requests an orbital volume or reruns QuTiP.
+  const precision = usePrecision(precisionActive);
+
+  // In Precision mode the spatial cloud is the UNCHANGED nonrelativistic orbital
+  // that matches the selected level (density only). Changing corrections/field
+  // does not touch this; only a different orbital family/term refetches density.
+  const spatialPreset = precision.spatialPreset;
+  useEffect(() => {
+    if (!precisionActive) return;
+    atomic.selectPreset(spatialPreset);
+    atomic.setMode("density");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [precisionActive, spatialPreset]);
 
   const clearCameraFocus = useCallback(() => {
     setFocusedObject(null); setFocusLevel(1); setSelection(null);
@@ -224,9 +242,12 @@ export default function ExperimentStudio() {
       })
     : [];
 
-  // Exactly one contextual card: the Hydrogen inspector (carrying live atomic
-  // controls at the Atomic resolution) OR the object focus card — never both.
-  const sceneHud = showsHydrogenInspector(nav) ? (
+  // Exactly one contextual card: the Precision overlay (at the Precision
+  // resolution), the Hydrogen inspector (carrying live atomic controls at the
+  // Atomic resolution), or the object focus card — never more than one.
+  const sceneHud = precisionActive ? (
+    <PrecisionOverlay precision={precision} onBack={goBack} />
+  ) : showsHydrogenInspector(nav) ? (
     <HydrogenInspector
       nav={nav}
       atomic={atomicActive ? atomic : null}
@@ -330,11 +351,12 @@ export default function ExperimentStudio() {
             </div>
           )}
           {/* Scene: the Atomic |ψ|² visualization REPLACES the lab scene at the
-              Atomic resolution; the app shell, inspector, transport, and timeline
-              stay, and the Proton Spin experiment state is preserved untouched. */}
-          <div style={{ flex: (showMath && !atomicActive) ? "1 1 50%" : "1 1 100%", minWidth: 0, position: "relative" }}>
-            {atomicActive ? (
-              <AtomicHydrogenScene atomic={atomic} hud={sceneHud} />
+              Atomic resolution, and serves as the (unchanged) spatial context at
+              the Precision resolution; the app shell, inspector, transport, and
+              timeline stay, and the Proton Spin experiment state is preserved. */}
+          <div style={{ flex: (showMath && !atomicActive && !precisionActive) ? "1 1 50%" : "1 1 100%", minWidth: 0, position: "relative" }}>
+            {(atomicActive || precisionActive) ? (
+              <AtomicHydrogenScene atomic={atomic} hud={sceneHud} spatialContext={precisionActive} />
             ) : (
               <PhysicalLabScene
                 emphasis={emphasis}
@@ -359,8 +381,8 @@ export default function ExperimentStudio() {
             )}
           </div>
 
-          {/* Mathematical state space (optional; hidden in Atomic visualization) */}
-          {showMath && !atomicActive && (
+          {/* Mathematical state space (optional; hidden in Atomic/Precision views) */}
+          {showMath && !atomicActive && !precisionActive && (
             <div style={{ flex: "1 1 50%", minWidth: 0, borderLeft: `1px solid ${C.border}` }}>
               <StateSphere
                 bloch={currentBloch}

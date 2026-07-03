@@ -210,7 +210,7 @@ function EnergyInset({ data }) {
   );
 }
 
-export default function AtomicHydrogenScene({ atomic, hud, height = "100%" }) {
+export default function AtomicHydrogenScene({ atomic, hud, height = "100%", spatialContext = false }) {
   const controlsRef = useRef();
   const data = atomic.data;
   const L = data?.sampling?.bound_amu ?? 12;
@@ -235,7 +235,20 @@ export default function AtomicHydrogenScene({ atomic, hud, height = "100%" }) {
       </Canvas>
 
       <ScaleIndicator L={L} norm={norm} />
-      <EnergyInset data={data} />
+      {spatialContext ? (
+        <div data-testid="precision-spatial-source" style={{
+          position: "absolute", top: "10px", right: "12px", userSelect: "none", pointerEvents: "none",
+          background: "rgba(6,10,26,0.85)", border: `1px solid ${C.border}`, borderRadius: "8px",
+          padding: "6px 10px", fontSize: "9px", lineHeight: "1.6", maxWidth: "230px", textAlign: "right",
+        }}>
+          <div style={{ color: "#9fd0ff" }}>Spatial density source: nonrelativistic orbital model</div>
+          <div style={{ color: "rgba(150,180,220,0.7)" }}>
+            Precision overlay: spin &amp; energy corrections only — the spatial cloud is not deformed.
+          </div>
+        </div>
+      ) : (
+        <EnergyInset data={data} />
+      )}
 
       {atomic.loading && (
         <div data-testid="atomic-loading" style={{

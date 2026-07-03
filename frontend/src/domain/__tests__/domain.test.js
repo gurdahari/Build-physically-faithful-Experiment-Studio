@@ -54,9 +54,9 @@ describe("HydrogenEntity", () => {
   it("marks correct active vs placeholder statuses", () => {
     expect(getResolution(RES.LABORATORY).status).toBe(RESOLUTION_STATUS.ACTIVE);
     expect(getResolution(RES.PROTON_SPIN).status).toBe(RESOLUTION_STATUS.ACTIVE);
-    // Milestone 3 activates the Atomic resolution (interactive |ψ|² visualization).
+    // Milestone 3 activates the Atomic resolution; Milestone 4 activates Precision.
     expect(getResolution(RES.ATOMIC).status).toBe(RESOLUTION_STATUS.ACTIVE);
-    expect(getResolution(RES.PRECISION).status).toBe(RESOLUTION_STATUS.PLACEHOLDER);
+    expect(getResolution(RES.PRECISION).status).toBe(RESOLUTION_STATUS.ACTIVE);
     expect(getResolution(RES.PROTON_INTERNAL).status).toBe(RESOLUTION_STATUS.PLACEHOLDER);
   });
 });

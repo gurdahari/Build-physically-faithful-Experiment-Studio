@@ -159,13 +159,13 @@ describe("AtomicControls", () => {
 
 // ── ExperimentStudio: swap the scene, preserve the app shell + experiment ─────
 describe("ExperimentStudio scene swap at the Atomic resolution", () => {
-  it("activates the atomic hook only at the Atomic resolution", () => {
+  it("activates the atomic hook at the Atomic resolution (also as Precision spatial context)", () => {
     expect(/nav\.resolutionId === RES\.ATOMIC/.test(studio)).toBe(true);
-    expect(/useAtomicHydrogen\(atomicActive\)/.test(studio)).toBe(true);
+    expect(/useAtomicHydrogen\(atomicActive \|\| precisionActive\)/.test(studio)).toBe(true);
   });
 
   it("renders the AtomicHydrogenScene in place of the lab scene (exactly one)", () => {
-    expect(/atomicActive \? \(\s*<AtomicHydrogenScene/.test(studio)).toBe(true);
+    expect(/\(atomicActive \|\| precisionActive\) \? \(\s*<AtomicHydrogenScene/.test(studio)).toBe(true);
     expect((studio.match(/<AtomicHydrogenScene/g) ?? []).length).toBe(1);
     // The lab scene still exists for every other resolution.
     expect((studio.match(/<PhysicalLabScene/g) ?? []).length).toBe(1);

@@ -133,29 +133,59 @@ export const HYDROGEN_CONTRACTS = {
 
   [CONTRACT.PRECISION]: createModelContract({
     id: CONTRACT.PRECISION, entityId: E, resolutionId: RES.PRECISION,
-    modelName: "Precision atomic structure (planned)",
-    theory: "Intended: precision corrections beyond the nonrelativistic model",
-    stateRepresentation: "Not defined — placeholder",
-    governingEquations: [],
-    includedDegreesOfFreedom: [],
-    omittedDegreesOfFreedom: ["ALL — no precision-structure model is active yet"],
-    solver: "none — not yet implemented",
-    approximationSet: [],
-    observables: [],
-    derivedQuantities: [],
-    validityRange: "Not applicable — resolution is a placeholder",
-    uncertaintyStatement: "No authoritative computation exists at this resolution",
-    allowedRepresentations: [],
-    forbiddenRepresentations: ["any rendered precision-structure result (none exists yet)"],
-    limitations: [
-      "Future scope may include fine structure.",
-      "Future scope may include hyperfine structure.",
-      "Future scope may include recoil.",
-      "Future scope may include the Lamb shift.",
-      "Future scope may include QED corrections.",
-      "Future scope may include proton finite-size effects.",
+    modelName: "Precision atomic structure (layered effective model)",
+    theory: "Nonrelativistic Coulomb baseline layered with fine structure, reference-data Lamb "
+      + "shift, ground-state hyperfine coupling, and static-field (Zeeman / Breit–Rabi) structure",
+    stateRepresentation: "Coupled angular momenta (l, s, j, I, F, m_F) + energy corrections; "
+      + "spatial state still from the nonrelativistic orbital model",
+    governingEquations: [
+      "E_total = E_Coulomb + ΔE_fine + ΔE_recoil + ΔE_Lamb + ΔE_hyperfine + ΔE_Zeeman",
+      "ΔE_fine = E_n (Zα)²/n² (n/(j+1/2) − 3/4)",
+      "H_hfs = A I·J;  A = h·ν_HF",
+      "Breit–Rabi diagonalization of A I·J + g_J μ_B B J_z − g_p μ_N B I_z",
     ],
-    modelVersion: "0.0.0",
+    includedDegreesOfFreedom: [
+      "point-nucleus Coulomb baseline", "electron spin s=1/2", "orbital angular momentum l",
+      "total electronic angular momentum j", "selected fine-structure corrections",
+      "selected recoil treatment (reduced-mass baseline)", "electron–proton hyperfine coupling",
+      "proton spin I=1/2", "total atomic angular momentum F", "static magnetic-field splitting",
+      "transition selection rules", "versioned reference values (Lamb shift, ν_HF)",
+    ],
+    omittedDegreesOfFreedom: [
+      "full numerical bound-state QED", "arbitrary-order radiative corrections",
+      "complete two-photon exchange", "full proton-polarizability calculation",
+      "arbitrary excited-state hyperfine precision", "strong-field ionization",
+      "time-dependent optical driving", "spontaneous-emission dynamics", "collisions",
+      "environmental decoherence", "many-body effects", "molecular hydrogen",
+      "proton internal real-time dynamics", "electroweak corrections",
+    ],
+    solver: "analytic + perturbative + versioned reference data (backend/hydrogen/precision); QuTiP is NOT used",
+    approximationSet: ["leading (Zα)² fine structure", "effective A I·J hyperfine",
+      "reference-data Lamb shift (2S1/2−2P1/2)", "Breit–Rabi / weak-field Zeeman"],
+    observables: ["energy levels", "transition frequencies/wavelengths", "hyperfine splitting", "g-factors"],
+    derivedQuantities: ["correction budget", "F/m_F structure", "state composition", "selection-rule results"],
+    validityRange: "¹H, n ≤ 2 supported states; low-Z leading-order; B ≤ 20 T",
+    uncertaintyStatement: "Computed terms carry truncation error; reference data carry declared dataset uncertainty",
+    allowedRepresentations: [
+      "energy-level diagram (interpretive lines)", "correction budget (model-derived + reference)",
+      "coupled-spin (F) state diagram (interpretive)", "Breit–Rabi level plot",
+      "transition arrows for ALLOWED transitions only", "reference-data overlays (labeled)",
+    ],
+    forbiddenRepresentations: [
+      "spin as a literal rotating classical ball",
+      "distinct spatial orbital clouds for spin-only / hyperfine splittings",
+      "reference data presented as a first-principles calculation",
+      "real-time bound-state QED / spontaneous-emission animation",
+      "full Dirac-spinor spatial rendering (not implemented)",
+    ],
+    limitations: [
+      "A layered effective model: analytic/perturbative calculations + versioned reference data.",
+      "NOT a complete real-time bound-state QED simulation.",
+      "Lamb shift is reference data (2S1/2−2P1/2), not a QED calculation.",
+      "Hyperfine is the ground-state ¹H coupling only; excited-state hyperfine omitted.",
+      "Spatial density remains the nonrelativistic orbital model; corrections are not spatially visible.",
+    ],
+    modelVersion: "1.0.0",
   }),
 
   [CONTRACT.PROTON_INTERNAL]: createModelContract({
@@ -208,10 +238,12 @@ export const HYDROGEN_RESOLUTIONS = [
   }),
   createPhysicalResolution({
     id: RES.PRECISION, entityId: E, displayName: "Precision Atomic Structure",
-    description: "Planned precision corrections (fine/hyperfine/recoil/Lamb/QED/proton size).",
-    status: RESOLUTION_STATUS.PLACEHOLDER, modelContractId: CONTRACT.PRECISION,
+    description: "Fine structure, reference-data Lamb shift, ground-state hyperfine (21 cm), and "
+      + "static-field Breit–Rabi structure layered on the nonrelativistic baseline — an explicit "
+      + "effective model with per-term provenance, not a full bound-state QED simulation.",
+    status: RESOLUTION_STATUS.ACTIVE, modelContractId: CONTRACT.PRECISION,
     parentResolutionId: RES.ATOMIC, childResolutionIds: [RES.PROTON_INTERNAL],
-    limitations: "Placeholder — no precision-structure model active.",
+    limitations: "Layered effective model (analytic + reference data); spatial density unchanged from the orbital model.",
   }),
   createPhysicalResolution({
     id: RES.PROTON_INTERNAL, entityId: E, displayName: "Proton Internal Structure",

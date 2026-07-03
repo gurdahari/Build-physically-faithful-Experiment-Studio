@@ -15,6 +15,11 @@ from physics.qutip_pulse import simulate_qutip_pulse, compare_solvers
 from physics.experiment import simulate_experiment
 from hydrogen import service as hydrogen_service
 from hydrogen.schemas import EvaluateRequest as HydrogenEvaluateRequest
+from hydrogen.precision import service as precision_service
+from hydrogen.precision.schemas import (
+    LevelsRequest as PrecisionLevelsRequest,
+    TransitionRequest as PrecisionTransitionRequest,
+)
 
 app = FastAPI(title="Quantum Experiment Studio API", version="0.1.0")
 
@@ -210,5 +215,34 @@ def hydrogen_atomic_evaluate(body: HydrogenEvaluateRequest):
     errors (422) instead of tracebacks."""
     try:
         return hydrogen_service.evaluate(body)
+    except (ValueError, KeyError, NotImplementedError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get("/hydrogen/precision/model")
+def hydrogen_precision_model():
+    """Precision Atomic Structure metadata: correction hierarchy, providers with
+    classifications (computed / reference-data / omitted), supported states,
+    included/omitted physics, validity ranges, constants and dataset versions."""
+    return precision_service.model_metadata()
+
+
+@app.post("/hydrogen/precision/levels")
+def hydrogen_precision_levels(body: PrecisionLevelsRequest):
+    """Energy levels with a per-term correction budget (each contribution reported
+    separately with provenance), quantum numbers, degeneracies, and — for the
+    ground manifold — Breit–Rabi structure. Clear 422 on invalid combinations."""
+    try:
+        return precision_service.compute_levels(body)
+    except (ValueError, KeyError, NotImplementedError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/hydrogen/precision/transitions")
+def hydrogen_precision_transitions(body: PrecisionTransitionRequest):
+    """Classify and price a transition: selection-rule evaluation, allowed/forbidden,
+    energy, frequency, angular frequency, wavelength, polarization, provenance."""
+    try:
+        return precision_service.compute_transitions(body)
     except (ValueError, KeyError, NotImplementedError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
